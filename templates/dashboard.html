@@ -9,8 +9,16 @@
 <div><a href="{{ url_for('dashboard') }}">Reset</a></div>
 <div style="margin-left:auto" class="mute">{% if updated %}Data updated: {{ updated }}{% else %}No data loaded yet{% endif %}</div>
 </form>
-{% if cols %}
-<div class="tablewrap"><table class="fmt">
+{% if not has_sel %}
+<div class="card empty">Select a COCO / Region / City / Centre above to view the table.<br>
+<span class="mute">To see cities side by side, use <a href="{{ url_for('compare') }}">Comparison</a>.</span></div>
+{% elif cols %}
+<div class="toolbar">
+<button type="button" class="ghost" data-copy="mrmtable">Copy table</button>
+<a class="btn ghost" href="{{ url_for('export_csv', **request.args.to_dict()) }}">Export CSV</a>
+<a class="btn" href="{{ url_for('compare') }}">Compare cities</a>
+</div>
+<div class="tablewrap"><table class="fmt" id="mrmtable">
 <tr><th>Metric (CAT 26 students till date)</th>{% for c in cols %}<th class="{{ c.kind }}">{{ c.label }}</th>{% endfor %}</tr>
 {% for m in metrics %}{% set i = loop.index0 %}<tr><td>{{ m.label }}</td>
 {% for c in cols %}<td class="{{ c.kind }} {{ 'b' if m.bold }}">{{ c.vals[i] }}</td>{% endfor %}</tr>{% endfor %}
