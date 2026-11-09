@@ -206,7 +206,7 @@ def create_app():
         picked = [c for c in sel if c]
         if len(picked) >= 2:
             for c in picked:
-                cols.append({"label": c, "kind": "",
+                cols.append({"label": c, "kind": "total",
                              "vals": metrics.column_values([r.data for r in rows if r.city == c])})
         return dict(cities=cities, sel=sel, cols=cols)
 
