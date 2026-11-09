@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% block title %}Users{% endblock %}
+{% block body %}
+<datalist id="rl">{% for r in regions %}<option value="{{ r }}">{% endfor %}</datalist>
+<datalist id="cl">{% for r in centers %}<option value="{{ r }}">{% endfor %}</datalist>
+<div class="card"><h3 style="margin-top:0">Add mentor / admin</h3>
+<form method="post" action="{{ url_for('admin_user_save') }}" class="row"><input type="hidden" name="csrf" value="{{ csrf() }}">
+<div><label>Email</label><input name="email" type="email" required></div>
+<div><label>Name</label><input name="name"></div>
+<div><label>Password</label><input name="password" required minlength="6"></div>
+<div><label>Region(s) – comma separated, * = all</label><input name="regions" list="rl" placeholder="Mumbai"></div>
+<div><label>Centre(s) – empty = whole region</label><input name="centers" list="cl"></div>
+<div><label><input type="checkbox" name="is_admin"> Admin</label></div>
+<button>Add</button></form></div>
+<div class="card"><h3 style="margin-top:0">Users</h3>
+<table class="plain"><tr><th>Email / name</th><th>Region(s)</th><th>Centre(s)</th><th>Admin</th><th>Active</th><th>New password</th><th></th></tr>
+{% for x in users %}<tr><form method="post" action="{{ url_for('admin_user_save') }}"><input type="hidden" name="csrf" value="{{ csrf() }}"><input type="hidden" name="id" value="{{ x.id }}">
+<td>{{ x.email }}<br><input name="name" value="{{ x.name }}" style="width:150px"></td>
+<td><input name="regions" value="{{ x.regions }}" list="rl"></td><td><input name="centers" value="{{ x.centers }}" list="cl"></td>
+<td><input type="checkbox" name="is_admin" {{ 'checked' if x.is_admin }}></td><td><input type="checkbox" name="active" {{ 'checked' if x.active }}></td>
+<td><input name="password" placeholder="leave blank" style="width:120px"></td>
+<td><button>Save</button></form>
+{% if x.id != u.id %}<form method="post" action="{{ url_for('admin_user_delete', uid=x.id) }}" style="display:inline" onsubmit="return confirm('Delete {{ x.email }}?')"><input type="hidden" name="csrf" value="{{ csrf() }}"><button class="danger">Delete</button></form>{% endif %}</td></tr>{% endfor %}
+</table></div>{% endblock %}
