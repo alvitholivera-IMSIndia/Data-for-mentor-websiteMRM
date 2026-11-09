@@ -24,12 +24,26 @@ table.fmt th:first-child{background:var(--head)}
 table.fmt .b{font-weight:700}table.fmt td.total{background:var(--tot)}table.fmt td.grand{background:var(--grand)}
 table.fmt th.total{background:var(--tot)}table.fmt th.grand{background:var(--grand)}
 table.plain{border-collapse:collapse;width:100%}table.plain td,table.plain th{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:8px;flex-wrap:wrap}
+a.btn{display:inline-block;padding:7px 12px;border:1px solid var(--brand);border-radius:6px;text-decoration:none;color:#fff;background:var(--brand)}a.btn.ghost{background:none;color:var(--brand)}
+.empty{text-align:center;color:var(--mute);padding:40px 16px}
 .row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.mute{color:var(--mute);font-size:12px}
 </style></head><body>
 {% if u is defined and u %}<header><h1>MRM Report · FY 26-27</h1>
 <span class="mute">{{ u.email }}</span>
 <a href="{{ url_for('dashboard') }}">Dashboard</a>
+<a href="{{ url_for('compare') }}">Comparison</a>
 {% if u.is_admin %}<a href="{{ url_for('admin_users') }}">Users</a><a href="{{ url_for('admin_data') }}">Data</a>{% endif %}
 <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf() }}"><button class="ghost">Log out</button></form></header>{% endif %}
 <main>{% for c, m in get_flashed_messages(with_categories=true) %}<div class="flash {{ c }}">{{ m }}</div>{% endfor %}
-{% block body %}{% endblock %}</main></body></html>
+{% block body %}{% endblock %}</main><script>
+document.addEventListener("click",function(e){
+ var b=e.target.closest("[data-copy]");if(!b)return;
+ var t=document.getElementById(b.getAttribute("data-copy"));if(!t)return;
+ var text=Array.prototype.map.call(t.rows,function(r){return Array.prototype.map.call(r.cells,function(c){return c.innerText.trim()}).join("\t")}).join("\n");
+ function done(ok){var o=b.textContent;b.textContent=ok?"Copied!":"Copy failed";setTimeout(function(){b.textContent=o},1500)}
+ function fallback(){var ta=document.createElement("textarea");ta.value=text;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();var ok=false;try{ok=document.execCommand("copy")}catch(x){}document.body.removeChild(ta);done(ok)}
+ if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(function(){done(true)},fallback)}else{fallback()}
+});
+</script>
+</body></html>
