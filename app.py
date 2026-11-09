@@ -16,7 +16,8 @@ def create_app():
     app = Flask(__name__)
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-change-me")
     uri = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
-       if uri:
+    if uri:
+        # force the psycopg2 driver we install (Vercel's link may say postgres:// or postgresql+psycopg://)
         uri = re.sub(r"^postgres(ql)?(\+\w+)?://", "postgresql+psycopg2://", uri)
     else:  # local / fallback only. Vercel's disk is temporary, so use Postgres in production.
         path = "/tmp/mrm.db" if os.environ.get("VERCEL") else os.path.join(os.path.dirname(__file__), "mrm.db")
