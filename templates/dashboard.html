@@ -1,49 +1,28 @@
-<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{% block title %}MRM Report{% endblock %}</title>
-<style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1f2933;--mute:#6b7785;--line:#dde2e8;--brand:#1a73e8;--head:#cfd8e3;--tot:#e8edf4;--grand:#d7e3f4;--err:#c0392b;--ok:#1e8e3e}
-@media(prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1d2128;--ink:#e6e9ee;--mute:#98a2b0;--line:#323a45;--brand:#6ea8ff;--head:#2b3441;--tot:#252c37;--grand:#2c3b52;--err:#ff7b6b;--ok:#5fd486}}
-*{box-sizing:border-box}body{margin:0;font:14px/1.45 Arial,Helvetica,sans-serif;background:var(--bg);color:var(--ink)}
-header{display:flex;gap:16px;align-items:center;padding:10px 20px;background:var(--card);border-bottom:1px solid var(--line)}
-header h1{font-size:16px;margin:0;flex:1}header a{color:var(--brand);text-decoration:none}
-main{padding:20px;max-width:1500px;margin:auto}
-.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:16px}
-input,select,textarea,button{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
-button{cursor:pointer;background:var(--brand);color:#fff;border-color:var(--brand)}button.ghost{background:none;color:var(--brand)}button.danger{background:none;color:var(--err);border-color:var(--err)}
-label{display:block;font-size:12px;color:var(--mute);margin-bottom:3px}
-.flash{padding:9px 12px;border-radius:6px;margin-bottom:12px}.flash.err{background:#fdecea;color:var(--err)}.flash.ok{background:#e6f4ea;color:var(--ok)}
-.filters{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
-.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--card)}
-table.fmt{border-collapse:collapse;min-width:100%}
-table.fmt th,table.fmt td{border:1px solid var(--line);padding:7px 12px;text-align:center;white-space:nowrap}
-table.fmt th{background:var(--head);position:sticky;top:0}
-table.fmt td:first-child,table.fmt th:first-child{text-align:left;position:sticky;left:0;background:var(--card);font-weight:400;z-index:1}
-table.fmt th:first-child{background:var(--head)}
-table.fmt .b{font-weight:700}table.fmt td.total{background:var(--tot)}table.fmt td.grand{background:var(--grand)}
-table.fmt th.total{background:var(--tot)}table.fmt th.grand{background:var(--grand)}
-table.plain{border-collapse:collapse;width:100%}table.plain td,table.plain th{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-.toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:8px;flex-wrap:wrap}
-a.btn{display:inline-block;padding:7px 12px;border:1px solid var(--brand);border-radius:6px;text-decoration:none;color:#fff;background:var(--brand)}a.btn.ghost{background:none;color:var(--brand)}
-.empty{text-align:center;color:var(--mute);padding:40px 16px}
-.row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.mute{color:var(--mute);font-size:12px}
-</style></head><body>
-{% if u is defined and u %}<header><h1>MRM Report · FY 26-27</h1>
-<span class="mute">{{ u.email }}</span>
-<a href="{{ url_for('dashboard') }}">Dashboard</a>
-<a href="{{ url_for('compare') }}">Comparison</a>
-{% if u.is_admin %}<a href="{{ url_for('admin_users') }}">Users</a><a href="{{ url_for('admin_data') }}">Data</a>{% endif %}
-<form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf() }}"><button class="ghost">Log out</button></form></header>{% endif %}
-<main>{% for c, m in get_flashed_messages(with_categories=true) %}<div class="flash {{ c }}">{{ m }}</div>{% endfor %}
-{% block body %}{% endblock %}</main><script>
-document.addEventListener("click",function(e){
- var b=e.target.closest("[data-copy]");if(!b)return;
- var t=document.getElementById(b.getAttribute("data-copy"));if(!t)return;
- var text=Array.prototype.map.call(t.rows,function(r){return Array.prototype.map.call(r.cells,function(c){return c.innerText.trim()}).join("\t")}).join("\n");
- function done(ok){var o=b.textContent;b.textContent=ok?"Copied!":"Copy failed";setTimeout(function(){b.textContent=o},1500)}
- function fallback(){var ta=document.createElement("textarea");ta.value=text;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();var ok=false;try{ok=document.execCommand("copy")}catch(x){}document.body.removeChild(ta);done(ok)}
- if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(function(){done(true)},fallback)}else{fallback()}
-});
-</script>
-</body></html>
+{% extends "base.html" %}{% block title %}Dashboard{% endblock %}
+{% block body %}
+<form class="card filters" method="get">
+{% for key, label in (("coco","COCO / Non COCO"),("region","Region"),("city","City"),("center","Centre")) %}
+{% if opts[key]|length > 1 or f[key] %}<div><label>{{ label }}</label>
+<select name="{{ key }}" onchange="this.form.submit()"><option value="">All</option>
+{% for o in opts[key] %}<option {{ 'selected' if f[key]==o }}>{{ o }}</option>{% endfor %}</select></div>{% endif %}{% endfor %}
+<div><label>&nbsp;</label><label style="color:var(--ink)"><input type="checkbox" name="expand" value="1" {{ 'checked' if expand_all }} onchange="this.form.submit()"> Show centre-wise for every region</label></div>
+<div><a href="{{ url_for('dashboard') }}">Reset</a></div>
+<div style="margin-left:auto" class="mute">{% if updated %}Data updated: {{ updated }}{% else %}No data loaded yet{% endif %}</div>
+</form>
+{% if not has_sel %}
+<div class="card empty">Select a COCO / Region / City / Centre above to view the table.<br>
+<span class="mute">To see cities side by side, use <a href="{{ url_for('compare') }}">Comparison</a>.</span></div>
+{% elif cols %}
+<div class="toolbar">
+<button type="button" class="ghost" data-copy="mrmtable">Copy table</button>
+<a class="btn ghost" href="{{ url_for('export_csv', **request.args.to_dict()) }}">Export CSV</a>
+<a class="btn" href="{{ url_for('compare') }}">Compare cities</a>
+</div>
+<div class="tablewrap"><table class="fmt" id="mrmtable">
+<tr><th>Metric (CAT 26 students till date)</th>{% for c in cols %}<th class="{{ c.kind }}">{{ c.label }}</th>{% endfor %}</tr>
+{% for m in metrics %}{% set i = loop.index0 %}<tr><td>{{ m.label }}</td>
+{% for c in cols %}<td class="{{ c.kind }} {{ 'b' if m.bold }}">{{ c.vals[i] }}</td>{% endfor %}</tr>{% endfor %}
+</table></div>
+<p class="mute">Values are actual (target). – means that figure is not in the loaded data.</p>
+{% else %}<div class="card">No data to show for your login / filters. If this looks wrong, contact the admin.</div>{% endif %}
+{% endblock %}
