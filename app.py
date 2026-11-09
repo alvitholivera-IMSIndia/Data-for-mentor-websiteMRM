@@ -1,10 +1,14 @@
+import csv
 import importlib.util
+import io
 import os
 import re
 import secrets
 from functools import wraps
 
-from flask import (Flask, abort, flash, jsonify, redirect, render_template,
+from datetime import date
+
+from flask import (Flask, Response, abort, flash, jsonify, redirect, render_template,
                    request, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -113,27 +117,12 @@ def create_app():
         return redirect(url_for("login"))
 
     # ---------- dashboard ----------
-    @app.route("/")
-    @login_required()
-    def dashboard(u):
-        rows = visible_rows(u)
-        f = {k: request.args.get(k, "") for k in ("coco", "region", "city", "center")}
-        opts = {
-            "coco": sorted({r.coco for r in rows if r.coco}),
-            "region": sorted({r.region for r in rows}),
-            "city": sorted({r.city for r in rows if not f["region"] or r.region == f["region"]}),
-            "center": sorted({r.center for r in rows
-                              if (not f["region"] or r.region == f["region"])
-                              and (not f["city"] or r.city == f["city"])}),
-        }
-        for k, attr in (("coco", "coco"), ("region", "region"), ("city", "city"), ("center", "center")):
-            if f[k]:
-                rows = [r for r in rows if getattr(r, attr) == f[k]]
+    FILTER_KEYS = ("coco", "region", "city", "center")
 
+    def build_cols(u, rows, f, expand_all):
         by_region = {}
         for r in rows:
             by_region.setdefault(r.region, []).append(r)
-        expand_all = request.args.get("expand") == "1"
         cols = []
         for region, rs in by_region.items():
             expand = len(rs) > 1 and (expand_all or region in metrics.EXPAND_REGIONS
@@ -152,10 +141,89 @@ def create_app():
             label = "All India (Excl " + ", ".join(metrics.EXCLUDE_FROM_TOTAL) + ")" if excl else "Total"
             cols.append({"label": label, "kind": "grand",
                          "vals": metrics.column_values([r.data for r in use])})
+        return cols
 
+    def dash_context(u):
+        rows = visible_rows(u)
+        f = {k: request.args.get(k, "") for k in FILTER_KEYS}
+        opts = {
+            "coco": sorted({r.coco for r in rows if r.coco}),
+            "region": sorted({r.region for r in rows}),
+            "city": sorted({r.city for r in rows if not f["region"] or r.region == f["region"]}),
+            "center": sorted({r.center for r in rows
+                              if (not f["region"] or r.region == f["region"])
+                              and (not f["city"] or r.city == f["city"])}),
+        }
+        for k in FILTER_KEYS:
+            if f[k]:
+                rows = [r for r in rows if getattr(r, k) == f[k]]
+        # The table only appears once something is selected. If this login has nothing to
+        # choose between (every filter has a single option), show it straight away.
+        selectable = any(len(v) > 1 for v in opts.values())
+        has_sel = any(f.values()) or not selectable
+        expand_all = request.args.get("expand") == "1"
+        cols = build_cols(u, rows, f, expand_all) if has_sel else []
+        return dict(f=f, opts=opts, has_sel=has_sel, expand_all=expand_all, cols=cols)
+
+    def _safe(x):          # stop spreadsheet formula injection in exported text
+        x = str(x)
+        return "'" + x if x[:1] in ("=", "+", "-", "@") else x
+
+    def csv_response(cols, name):
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["Metric (CAT 26 students till date)"] + [_safe(c["label"]) for c in cols])
+        for i, m in enumerate(metrics.METRICS):
+            w.writerow([m["label"]] + [c["vals"][i] for c in cols])
+        return Response("\ufeff" + buf.getvalue(), mimetype="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f"attachment; filename={name}-{date.today():%Y-%m-%d}.csv"})
+
+    @app.route("/")
+    @login_required()
+    def dashboard(u):
+        ctx = dash_context(u)
         upd = db.session.get(Meta, "last_updated")
-        return render_template("dashboard.html", u=u, cols=cols, metrics=metrics.METRICS, f=f, opts=opts,
-                               expand_all=expand_all, updated=upd.value if upd else None)
+        return render_template("dashboard.html", u=u, metrics=metrics.METRICS,
+                               updated=upd.value if upd else None, **ctx)
+
+    @app.route("/export.csv")
+    @login_required()
+    def export_csv(u):
+        ctx = dash_context(u)
+        if not ctx["has_sel"] or not ctx["cols"]:
+            abort(400, "Select something on the dashboard first")
+        return csv_response(ctx["cols"], "mrm-report")
+
+    # ---------- comparison ----------
+    def compare_context(u):
+        rows = visible_rows(u)
+        cities = sorted({r.city for r in rows if r.city})
+        sel = []
+        for i in (1, 2, 3):
+            c = request.args.get(f"c{i}", "")
+            sel.append(c if c in cities and c not in sel else "")
+        cols = []
+        picked = [c for c in sel if c]
+        if len(picked) >= 2:
+            for c in picked:
+                cols.append({"label": c, "kind": "",
+                             "vals": metrics.column_values([r.data for r in rows if r.city == c])})
+        return dict(cities=cities, sel=sel, cols=cols)
+
+    @app.route("/compare")
+    @login_required()
+    def compare(u):
+        upd = db.session.get(Meta, "last_updated")
+        return render_template("compare.html", u=u, metrics=metrics.METRICS,
+                               updated=upd.value if upd else None, **compare_context(u))
+
+    @app.route("/compare.csv")
+    @login_required()
+    def compare_csv(u):
+        ctx = compare_context(u)
+        if not ctx["cols"]:
+            abort(400, "Select at least 2 cities first")
+        return csv_response(ctx["cols"], "mrm-comparison")
 
     # ---------- admin: users ----------
     @app.route("/admin/users")
