@@ -1,5 +1,4 @@
 import os
-import re
 import secrets
 from functools import wraps
 
@@ -12,13 +11,17 @@ import metrics
 from models import CenterData, Meta, RegionMap, User, db
 
 
+# Admin login (created / reset automatically every time the app starts)
+ADMIN_EMAIL = "alvith.olivera@imsindia.com"
+ADMIN_PASSWORD = "Welcome@123"
+
+
 def create_app():
     app = Flask(__name__)
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-change-me")
     uri = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
     if uri:
-        # force the psycopg2 driver we install (Vercel's link may say postgres:// or postgresql+psycopg://)
-        uri = re.sub(r"^postgres(ql)?(\+\w+)?://", "postgresql+psycopg2://", uri)
+        uri = uri.replace("postgres://", "postgresql://", 1)
     else:  # local / fallback only. Vercel's disk is temporary, so use Postgres in production.
         path = "/tmp/mrm.db" if os.environ.get("VERCEL") else os.path.join(os.path.dirname(__file__), "mrm.db")
         uri = "sqlite:///" + path
@@ -34,10 +37,13 @@ def create_app():
     def _init():
         if not state["ready"]:
             db.create_all()
-            email, pw = os.environ.get("ADMIN_EMAIL"), os.environ.get("ADMIN_PASSWORD")
-            if email and pw and User.query.count() == 0:
-                db.session.add(User(email=email.lower(), name="Admin", is_admin=True, regions="*",
-                                    password_hash=generate_password_hash(pw)))
+            email, pw = ADMIN_EMAIL, ADMIN_PASSWORD
+            if email and pw:   # create or reset the admin account on every start
+                email = email.strip().lower()
+                adm = User.query.filter_by(email=email).first() or User(email=email, name="Admin")
+                adm.is_admin, adm.active, adm.regions = True, True, "*"
+                adm.password_hash = generate_password_hash(pw.strip())
+                db.session.add(adm)
                 db.session.commit()
             state["ready"] = True
 
