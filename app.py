@@ -1,4 +1,6 @@
+import importlib.util
 import os
+import re
 import secrets
 from functools import wraps
 
@@ -21,7 +23,11 @@ def create_app():
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-change-me")
     uri = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
     if uri:
-        uri = uri.replace("postgres://", "postgresql://", 1)
+        # Neon/Vercel may give postgres://, postgresql:// or postgresql+psycopg://.
+        # Force the driver that is actually installed.
+        driver = "psycopg2" if importlib.util.find_spec("psycopg2") else "psycopg"
+        uri = re.sub(r"^postgres(ql)?(\+\w+)?://", f"postgresql+{driver}://", uri)
+        uri = uri.replace("&channel_binding=require", "").replace("channel_binding=require&", "")
     else:  # local / fallback only. Vercel's disk is temporary, so use Postgres in production.
         path = "/tmp/mrm.db" if os.environ.get("VERCEL") else os.path.join(os.path.dirname(__file__), "mrm.db")
         uri = "sqlite:///" + path
@@ -37,14 +43,16 @@ def create_app():
     def _init():
         if not state["ready"]:
             db.create_all()
-            email, pw = ADMIN_EMAIL, ADMIN_PASSWORD
-            if email and pw:   # create or reset the admin account on every start
-                email = email.strip().lower()
+            try:
+                email, pw = ADMIN_EMAIL.strip().lower(), ADMIN_PASSWORD
                 adm = User.query.filter_by(email=email).first() or User(email=email, name="Admin")
                 adm.is_admin, adm.active, adm.regions = True, True, "*"
-                adm.password_hash = generate_password_hash(pw.strip())
+                adm.password_hash = generate_password_hash(pw)
                 db.session.add(adm)
                 db.session.commit()
+            except Exception as e:   # e.g. two instances starting at once: don't crash the page
+                db.session.rollback()
+                app.logger.warning("Admin sync skipped: %s", e)
             state["ready"] = True
 
     # ---------- helpers ----------
