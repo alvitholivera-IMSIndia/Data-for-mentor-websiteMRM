@@ -1,0 +1,24 @@
+{% extends "base.html" %}{% block title %}Comparison{% endblock %}
+{% block body %}
+<form class="card filters" method="get">
+{% for i in (1, 2, 3) %}<div><label>City {{ i }}{{ ' (optional)' if i == 3 }}</label>
+<select name="c{{ i }}" onchange="this.form.submit()"><option value="">Select city</option>
+{% for c in cities %}<option {{ 'selected' if sel[i-1] == c }}>{{ c }}</option>{% endfor %}</select></div>{% endfor %}
+<div><a href="{{ url_for('compare') }}">Reset</a></div>
+<div style="margin-left:auto" class="mute">{% if updated %}Data updated: {{ updated }}{% else %}No data loaded yet{% endif %}</div>
+</form>
+{% if cols %}
+<div class="toolbar">
+<button type="button" class="ghost" data-copy="cmptable">Copy table</button>
+<a class="btn ghost" href="{{ url_for('compare_csv', **request.args.to_dict()) }}">Export CSV</a>
+</div>
+<div class="tablewrap"><table class="fmt" id="cmptable">
+<tr><th>Metric (CAT 26 students till date)</th>{% for c in cols %}<th>{{ c.label }}</th>{% endfor %}</tr>
+{% for m in metrics %}{% set i = loop.index0 %}<tr><td>{{ m.label }}</td>
+{% for c in cols %}<td class="{{ 'b' if m.bold }}">{{ c.vals[i] }}</td>{% endfor %}</tr>{% endfor %}
+</table></div>
+<p class="mute">Each column combines all centres in that city. Values are actual (target).</p>
+{% else %}
+<div class="card empty">Select at least 2 cities above (up to 3) to compare them side by side.</div>
+{% endif %}
+{% endblock %}
