@@ -16,8 +16,8 @@ def create_app():
     app = Flask(__name__)
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-change-me")
     uri = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
-    if uri:
-        uri = uri.replace("postgres://", "postgresql://", 1)
+       if uri:
+        uri = re.sub(r"^postgres(ql)?(\+\w+)?://", "postgresql+psycopg2://", uri)
     else:  # local / fallback only. Vercel's disk is temporary, so use Postgres in production.
         path = "/tmp/mrm.db" if os.environ.get("VERCEL") else os.path.join(os.path.dirname(__file__), "mrm.db")
         uri = "sqlite:///" + path
