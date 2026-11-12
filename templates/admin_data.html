@@ -1,12 +1,16 @@
 {% extends "base.html" %}{% block title %}Data{% endblock %}
 {% block body %}
-<div class="card"><h3 style="margin-top:0">Data source</h3>
-<p>{{ n }} centres loaded. Last updated: <b>{{ meta.get('last_updated','never') }}</b> ({{ meta.get('last_source','–') }}).</p>
-<form method="post" action="{{ url_for('admin_upload') }}" enctype="multipart/form-data" class="row"><input type="hidden" name="csrf" value="{{ csrf() }}">
-<div><label>Upload the MRM workbook (.xlsx with sheets “{{ sheets[0] }}” and “{{ sheets[1] }}”)</label><input type="file" name="file" accept=".xlsx,.xlsm" required></div><button>Upload &amp; refresh</button></form>
-{% if gsheet %}<form method="post" action="{{ url_for('admin_sync') }}" style="margin-top:12px"><input type="hidden" name="csrf" value="{{ csrf() }}"><button class="ghost">Sync now from Google Sheet</button></form>
-{% else %}<p class="mute">Google Sheet sync is off (set GSHEET_ID and GOOGLE_SERVICE_ACCOUNT_JSON to enable).</p>{% endif %}</div>
-<div class="card"><h3 style="margin-top:0">City → Region mapping</h3>
+{% for p in plist %}
+<div class="card"><h3 style="margin-top:0">{{ p.label }} data</h3>
+<p>{{ p.n }} centres loaded. Last updated: <b>{{ p.updated or 'never' }}</b> ({{ p.source or '–' }}).</p>
+{% if p.gsheet %}<form method="post" action="{{ url_for('admin_sync') }}"><input type="hidden" name="csrf" value="{{ csrf() }}"><input type="hidden" name="product" value="{{ p.code }}"><button>Sync {{ p.label }} now from Google Sheet</button></form>
+{% else %}<p class="mute">Google Sheet sync is off for {{ p.label }}: set <code>{{ p.env }}</code> (the sheet ID) and <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> in Vercel.</p>{% endif %}
+<details style="margin-top:12px"><summary class="mute" style="cursor:pointer">Or upload an .xlsx instead</summary>
+<form method="post" action="{{ url_for('admin_upload') }}" enctype="multipart/form-data" class="row" style="margin-top:8px"><input type="hidden" name="csrf" value="{{ csrf() }}"><input type="hidden" name="product" value="{{ p.code }}">
+<div><label>{{ p.label }} workbook (.xlsx with tabs “{{ p.tabs[0] }}” and “{{ p.tabs[1] }}”)</label><input type="file" name="file" accept=".xlsx,.xlsm" required></div><button class="ghost">Upload &amp; refresh</button></form></details>
+</div>
+{% endfor %}
+<div class="card"><h3 style="margin-top:0">City → Region mapping <span class="mute">(shared by all products)</span></h3>
 <p class="mute">One per line: <code>City = Region</code>. Mentors are assigned to a Region, e.g. <code>Mumbai (East) = Mumbai</code>. Cities not listed are their own region.</p>
 <form method="post" action="{{ url_for('admin_regions') }}"><input type="hidden" name="csrf" value="{{ csrf() }}">
 <textarea name="map" rows="12" style="width:100%;max-width:520px">{{ regionmap }}</textarea><br><br><button>Save mapping</button></form></div>{% endblock %}
