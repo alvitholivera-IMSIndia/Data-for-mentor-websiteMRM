@@ -3,7 +3,7 @@ Product configuration (PG / UG / Law).
 
 To change a tab name WITHOUT touching code, set an environment variable in Vercel, e.g.
     UG_SIM_TAB = SimTest Report        UG_MYPLAN_TAB = Checking
-To switch Law on later: set "enabled": True below and add GSHEET_ID_LAW in Vercel.
+Law needs GSHEET_ID_LAW in Vercel (and the sheet shared with the service account).
 """
 import os
 import re
@@ -22,7 +22,7 @@ PRODUCTS = {
         "heading": "Metric (UG students till date)",
     },
     "LAW": {
-        "label": "Law", "enabled": False,                      # to be built after UG
+        "label": "Law", "enabled": True,
         "sheet_env": ("GSHEET_ID_LAW",),
         "myplan_tab": "Checking", "sim_tab": "SimTest Report",
         "heading": "Metric (Law students till date)",
