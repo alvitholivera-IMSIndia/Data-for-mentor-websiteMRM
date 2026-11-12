@@ -1,10 +1,11 @@
 {% extends "base.html" %}{% block title %}Comparison{% endblock %}
 {% block body %}
 <form class="card filters" method="get">
+{% if product %}<input type="hidden" name="p" value="{{ product }}">{% endif %}
 {% for i in (1, 2, 3) %}<div><label>City {{ i }}{{ ' (optional)' if i == 3 }}</label>
 <select name="c{{ i }}" onchange="this.form.submit()"><option value="">Select city</option>
 {% for c in cities %}<option {{ 'selected' if sel[i-1] == c }}>{{ c }}</option>{% endfor %}</select></div>{% endfor %}
-<div><a href="{{ url_for('compare') }}">Reset</a></div>
+<div><a href="{{ url_for('compare', p=product) }}">Reset</a></div>
 <div style="margin-left:auto" class="mute">{% if updated %}Data updated: {{ updated }}{% else %}No data loaded yet{% endif %}</div>
 </form>
 {% if cols %}
@@ -13,7 +14,7 @@
 <a class="btn ghost" href="{{ url_for('compare_csv', **request.args.to_dict()) }}">Export CSV</a>
 </div>
 <div class="tablewrap"><table class="fmt" id="cmptable">
-<tr><th>Metric (CAT 26 students till date)</th>{% for c in cols %}<th class="{{ c.kind }}">{{ c.label }}</th>{% endfor %}</tr>
+<tr><th>{{ PRODUCTS[product].heading }}</th>{% for c in cols %}<th class="{{ c.kind }}">{{ c.label }}</th>{% endfor %}</tr>
 {% for m in metrics %}{% set i = loop.index0 %}<tr><td>{{ m.label }}</td>
 {% for c in cols %}<td class="{{ c.kind }} {{ 'b' if m.bold }}">{{ c.vals[i] }}</td>{% endfor %}</tr>{% endfor %}
 </table></div>
