@@ -8,12 +8,14 @@ from functools import wraps
 
 from datetime import date
 
-from flask import (Flask, Response, abort, flash, jsonify, redirect, render_template,
+from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template,
                    request, session, url_for)
+from sqlalchemy import inspect, text
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import ingest
 import metrics
+import products as P
 from models import CenterData, Meta, RegionMap, User, db
 
 
@@ -43,10 +45,35 @@ def create_app():
     db.init_app(app)
     state = {"ready": False}
 
+    def ensure_schema():
+        """Upgrade an existing (PG-only) database in place. Safe to run on every start."""
+        try:
+            insp = inspect(db.engine)
+            tables = set(insp.get_table_names())
+            if "users" in tables and "products" not in {c["name"] for c in insp.get_columns("users")}:
+                db.session.execute(text("ALTER TABLE users ADD COLUMN products VARCHAR(100) NOT NULL DEFAULT 'PG'"))
+                db.session.commit()
+            # one time: carry the old PG rows into the product-aware table
+            if "center_data" in tables and not db.session.get(Meta, "migrated_products"):
+                if db.session.execute(text("SELECT COUNT(*) FROM center_rows")).scalar() == 0:
+                    db.session.execute(text(
+                        "INSERT INTO center_rows (product, coco, city, region, center, raw) "
+                        "SELECT 'PG', coco, city, region, center, raw FROM center_data"))
+                for old, new in (("last_updated", "last_updated:PG"), ("last_source", "last_source:PG")):
+                    m = db.session.get(Meta, old)
+                    if m and not db.session.get(Meta, new):
+                        db.session.add(Meta(key=new, value=m.value))
+                db.session.add(Meta(key="migrated_products", value="1"))
+                db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.warning("Schema upgrade skipped: %s", e)
+
     @app.before_request
     def _init():
         if not state["ready"]:
             db.create_all()
+            ensure_schema()
             try:
                 email, pw = ADMIN_EMAIL.strip().lower(), ADMIN_PASSWORD
                 adm = User.query.filter_by(email=email).first() or User(email=email, name="Admin")
@@ -91,8 +118,36 @@ def create_app():
             return wrapper
         return deco
 
-    def visible_rows(u):
-        rows = CenterData.query.order_by(CenterData.id).all()
+    def allowed_products(u):
+        enabled = P.enabled_codes()
+        if u.is_admin or "*" in u.product_list:
+            return enabled
+        mine = set(u.product_list)
+        return [c for c in enabled if c in mine]
+
+    def active_product(u):
+        """The product being viewed: ?p=UG, else the last one used, else the first allowed."""
+        if "product" not in g:
+            allowed = allowed_products(u)
+            want = (request.args.get("p") or session.get("product") or "").upper()
+            g.product = want if want in allowed else (allowed[0] if allowed else None)
+            if g.product and session.get("product") != g.product:
+                session["product"] = g.product
+        return g.product
+
+    @app.context_processor
+    def _inject():
+        u = current_user()
+        if not u:
+            return {}
+        return dict(allowed=allowed_products(u), product=active_product(u), PRODUCTS=P.PRODUCTS)
+
+    def last_updated(product):
+        m = db.session.get(Meta, f"last_updated:{product}")
+        return m.value if m else None
+
+    def visible_rows(u, product):
+        rows = CenterData.query.filter_by(product=product).order_by(CenterData.id).all() if product else []
         if u.sees_everything:
             return rows
         regs = {r.lower() for r in u.region_list}
@@ -144,7 +199,8 @@ def create_app():
         return cols
 
     def dash_context(u):
-        rows = visible_rows(u)
+        product = active_product(u)
+        rows = visible_rows(u, product)
         f = {k: request.args.get(k, "") for k in FILTER_KEYS}
         opts = {
             "coco": sorted({r.coco for r in rows if r.coco}),
@@ -163,28 +219,27 @@ def create_app():
         has_sel = any(f.values()) or not selectable
         expand_all = request.args.get("expand") == "1"
         cols = build_cols(u, rows, f, expand_all) if has_sel else []
-        return dict(f=f, opts=opts, has_sel=has_sel, expand_all=expand_all, cols=cols)
+        return dict(f=f, opts=opts, has_sel=has_sel, expand_all=expand_all, cols=cols, product=product)
 
     def _safe(x):          # stop spreadsheet formula injection in exported text
         x = str(x)
         return "'" + x if x[:1] in ("=", "+", "-", "@") else x
 
-    def csv_response(cols, name):
+    def csv_response(cols, name, product):
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(["Metric (CAT 26 students till date)"] + [_safe(c["label"]) for c in cols])
+        w.writerow([P.PRODUCTS[product]["heading"]] + [_safe(c["label"]) for c in cols])
         for i, m in enumerate(metrics.METRICS):
             w.writerow([m["label"]] + [c["vals"][i] for c in cols])
         return Response("\ufeff" + buf.getvalue(), mimetype="text/csv; charset=utf-8",
-                        headers={"Content-Disposition": f"attachment; filename={name}-{date.today():%Y-%m-%d}.csv"})
+                        headers={"Content-Disposition": f"attachment; filename={name}-{product}-{date.today():%Y-%m-%d}.csv"})
 
     @app.route("/")
     @login_required()
     def dashboard(u):
         ctx = dash_context(u)
-        upd = db.session.get(Meta, "last_updated")
         return render_template("dashboard.html", u=u, metrics=metrics.METRICS,
-                               updated=upd.value if upd else None, **ctx)
+                               updated=last_updated(ctx["product"]), **ctx)
 
     @app.route("/export.csv")
     @login_required()
@@ -192,11 +247,12 @@ def create_app():
         ctx = dash_context(u)
         if not ctx["has_sel"] or not ctx["cols"]:
             abort(400, "Select something on the dashboard first")
-        return csv_response(ctx["cols"], "mrm-report")
+        return csv_response(ctx["cols"], "mrm-report", ctx["product"])
 
     # ---------- comparison ----------
     def compare_context(u):
-        rows = visible_rows(u)
+        product = active_product(u)
+        rows = visible_rows(u, product)
         cities = sorted({r.city for r in rows if r.city})
         sel = []
         for i in (1, 2, 3):
@@ -208,14 +264,14 @@ def create_app():
             for c in picked:
                 cols.append({"label": c, "kind": "total",
                              "vals": metrics.column_values([r.data for r in rows if r.city == c])})
-        return dict(cities=cities, sel=sel, cols=cols)
+        return dict(cities=cities, sel=sel, cols=cols, product=product)
 
     @app.route("/compare")
     @login_required()
     def compare(u):
-        upd = db.session.get(Meta, "last_updated")
+        ctx = compare_context(u)
         return render_template("compare.html", u=u, metrics=metrics.METRICS,
-                               updated=upd.value if upd else None, **compare_context(u))
+                               updated=last_updated(ctx["product"]), **ctx)
 
     @app.route("/compare.csv")
     @login_required()
@@ -223,13 +279,14 @@ def create_app():
         ctx = compare_context(u)
         if not ctx["cols"]:
             abort(400, "Select at least 2 cities first")
-        return csv_response(ctx["cols"], "mrm-comparison")
+        return csv_response(ctx["cols"], "mrm-comparison", ctx["product"])
 
     # ---------- admin: users ----------
     @app.route("/admin/users")
     @login_required(admin=True)
     def admin_users(u):
         return render_template("admin_users.html", u=u, users=User.query.order_by(User.email).all(),
+                               prods={c: P.PRODUCTS[c] for c in P.enabled_codes()},
                                regions=sorted({r.region for r in CenterData.query.all()}),
                                centers=sorted({r.center for r in CenterData.query.all()}))
 
@@ -240,6 +297,10 @@ def create_app():
         email = request.form.get("email", "").strip().lower()
         pw = request.form.get("password", "")
         target = db.session.get(User, int(uid)) if uid else None
+        codes = [c for c in request.form.getlist("products") if c in P.enabled_codes()]
+        if not codes and not request.form.get("is_admin") and not (target and target.id == u.id):
+            flash("Tick at least one product (PG / UG) for a mentor", "err")
+            return redirect(url_for("admin_users"))
         if not target:
             if not email or len(pw) < 6:
                 flash("Email and a password of at least 6 characters are required", "err")
@@ -252,6 +313,7 @@ def create_app():
         target.name = request.form.get("name", "").strip()
         target.regions = request.form.get("regions", "").strip()
         target.centers = request.form.get("centers", "").strip()
+        target.products = ",".join(codes)
         target.is_admin = bool(request.form.get("is_admin"))
         target.active = bool(request.form.get("active")) if uid else True
         if target.id == u.id:                      # never lock yourself out
@@ -281,16 +343,25 @@ def create_app():
     def admin_data(u):
         mp = {m.city: m.region for m in RegionMap.query.all()}
         cities = sorted({r.city for r in CenterData.query.all()})
-        text = "\n".join(f"{c} = {mp.get(c, c)}" for c in cities)
+        text_ = "\n".join(f"{c} = {mp.get(c, c)}" for c in cities)
         meta = {m.key: m.value for m in Meta.query.all()}
-        return render_template("admin_data.html", u=u, meta=meta, n=CenterData.query.count(),
-                               regionmap=text, gsheet=bool(os.environ.get("GSHEET_ID")),
-                               sheets=(ingest.MYPLAN_SHEET, ingest.SIM_SHEET))
+        plist = []
+        for c in P.enabled_codes():
+            plist.append(dict(code=c, label=P.PRODUCTS[c]["label"],
+                              n=CenterData.query.filter_by(product=c).count(),
+                              updated=meta.get(f"last_updated:{c}"), source=meta.get(f"last_source:{c}"),
+                              gsheet=bool(P.sheet_id(c)) and bool(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")),
+                              env=P.env_hint(c), tabs=(P.tab(c, "myplan"), P.tab(c, "sim"))))
+        return render_template("admin_data.html", u=u, plist=plist, regionmap=text_)
 
-    def _run(loader, label):
+    def _product_from_form():
+        code = (request.form.get("product") or "").upper()
+        return code if code in P.enabled_codes() else None
+
+    def _run(product, loader, label):
         try:
-            n, mismatch = ingest.store(*loader(), source=label)
-            msg = f"Loaded {n} centres from {label}."
+            n, mismatch = ingest.store(product, *loader(), source=label)
+            msg = f"{P.PRODUCTS[product]['label']}: loaded {n} centres from {label}."
             if mismatch:
                 msg += f" Only in one sheet: {', '.join(mismatch[:8])}"
             flash(msg, "ok")
@@ -301,17 +372,23 @@ def create_app():
     @app.route("/admin/data/upload", methods=["POST"])
     @login_required(admin=True)
     def admin_upload(u):
-        fl = request.files.get("file")
-        if not fl or not fl.filename.lower().endswith((".xlsx", ".xlsm")):
+        product, fl = _product_from_form(), request.files.get("file")
+        if not product:
+            flash("Unknown product", "err")
+        elif not fl or not fl.filename.lower().endswith((".xlsx", ".xlsm")):
             flash("Choose the .xlsx file", "err")
         else:
-            _run(lambda: ingest.rows_from_xlsx(fl.stream), f"upload: {fl.filename}")
+            _run(product, lambda: ingest.rows_from_xlsx(fl.stream, product), f"upload: {fl.filename}")
         return redirect(url_for("admin_data"))
 
     @app.route("/admin/data/sync", methods=["POST"])
     @login_required(admin=True)
     def admin_sync(u):
-        _run(ingest.rows_from_gsheet, "Google Sheet")
+        product = _product_from_form()
+        if not product:
+            flash("Unknown product", "err")
+        else:
+            _run(product, lambda: ingest.rows_from_gsheet(product), "Google Sheet")
         return redirect(url_for("admin_data"))
 
     @app.route("/admin/data/regions", methods=["POST"])
@@ -333,8 +410,17 @@ def create_app():
         secret = os.environ.get("CRON_SECRET")
         if not secret or request.headers.get("Authorization") != f"Bearer {secret}":
             abort(401)
-        n, _ = ingest.store(*ingest.rows_from_gsheet(), source="Google Sheet (cron)")
-        return jsonify(ok=True, centres=n)
+        out = {}
+        for code in P.enabled_codes():
+            if not P.sheet_id(code):
+                continue
+            try:
+                n, _ = ingest.store(code, *ingest.rows_from_gsheet(code), source="Google Sheet (cron)")
+                out[code] = n
+            except Exception as e:
+                db.session.rollback()
+                out[code] = f"error: {e}"
+        return jsonify(ok=all(isinstance(v, int) for v in out.values()), centres=out)
 
     return app
 
