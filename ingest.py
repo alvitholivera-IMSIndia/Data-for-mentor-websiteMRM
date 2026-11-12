@@ -22,7 +22,7 @@ MYPLAN_RULES = {
     "myplan_atleast1": [["least"]],
     "mpe_target": [["mpe", "target"]],
     "mp_cov_target": [["coverage", "target"]],
-    "myplan_meets": [["bench"]],   # PG header = students meeting benchmark; UG header = "# Below ..." (handled below)
+    "myplan_meets": [["bench"]],   # header "# Below myPlan Benchmark" (converted to "meets" below)
 }
 SIM_RULES = {
     "enrol": [["enrol"]],
@@ -74,16 +74,20 @@ def parse_pivot(rows, rules):
                 cols[field] = i
                 break
 
-    # If the benchmark column is headed "... Below ... Benchmark" it counts students BELOW the
-    # benchmark; we store "meets" everywhere, so convert it (meets = enrolments - below).
-    below_fields = {f for f, i in cols.items() if f.endswith("_meets") and "below" in heads[i]}
+    # The benchmark column counts students BELOW the benchmark; we store "meets" everywhere,
+    # so convert it (meets = enrolments - below).
+    # Default is BELOW (all three product sheets use "# Below ... Benchmark"); only a header that
+    # clearly says "meets / above / >=" is treated as students meeting the benchmark.
+    meets_words = ("≥", ">=", "meet", "above", "achiev", "pass")
+    below_fields = {f for f, i in cols.items()
+                    if f.endswith("_meets") and not any(w in heads[i] for w in meets_words)}
 
     out, coco, city = {}, "", ""
     for r in rows[hdr_i + 1:]:
         r = list(r) + [None] * (len(heads) - len(r))
-        if c_coco is not None and r[c_coco]:
+        if c_coco is not None and r[c_coco] and "total" not in str(r[c_coco]).lower():
             coco = str(r[c_coco]).strip()
-        if c_city is not None and r[c_city]:
+        if c_city is not None and r[c_city] and "total" not in str(r[c_city]).lower():
             city = str(r[c_city]).strip()
         center = str(r[c_center]).strip() if r[c_center] else ""
         if not center or "total" in center.lower():
