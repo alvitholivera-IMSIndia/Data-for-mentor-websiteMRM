@@ -12,19 +12,19 @@ PRODUCTS = {
     "PG": {
         "label": "PG", "enabled": True,
         "sheet_env": ("GSHEET_ID_PG", "GSHEET_ID"),          # GSHEET_ID = the variable you already set
-        "myplan_tab": "Checking", "sim_tab": "CheckingSim",
+        "myplan_tab": "MyPlan Report", "sim_tab": "CheckingSim",
         "heading": "Metric (CAT 26 students till date)",
     },
     "UG": {
         "label": "UG", "enabled": True,
         "sheet_env": ("GSHEET_ID_UG",),
-        "myplan_tab": "Checking", "sim_tab": "SimTest Report",
+        "myplan_tab": "MyPlan Report", "sim_tab": "SimTest Report",
         "heading": "Metric (UG students till date)",
     },
     "LAW": {
         "label": "Law", "enabled": True,
         "sheet_env": ("GSHEET_ID_LAW",),
-        "myplan_tab": "Checking", "sim_tab": "SimTest Report",
+        "myplan_tab": "MyPlan Report", "sim_tab": "SimTest Report",
         "heading": "Metric (Law students till date)",
     },
 }
