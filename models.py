@@ -16,6 +16,8 @@ class User(db.Model):
     # comma separated centre names. Empty = all centres in the allowed regions
     centers = db.Column(db.Text, default="")
     active = db.Column(db.Boolean, default=True, nullable=False)
+    # comma separated product codes (PG, UG, LAW). Admins see every product regardless.
+    products = db.Column(db.String(100), default="PG", nullable=False, server_default="PG")
 
     @staticmethod
     def _split(s):
@@ -30,19 +32,25 @@ class User(db.Model):
         return self._split(self.centers)
 
     @property
+    def product_list(self):
+        return [x.upper() for x in self._split(self.products)]
+
+    @property
     def sees_everything(self):
         return self.is_admin or "*" in self.region_list
 
 
 class CenterData(db.Model):
-    """One row per centre. `raw` holds the raw counts coming from the pivots (JSON),
+    """One row per centre PER PRODUCT. `raw` holds the raw counts coming from the pivots (JSON),
     so adding a new field later does not need a schema change."""
-    __tablename__ = "center_data"
+    __tablename__ = "center_rows"
+    __table_args__ = (db.UniqueConstraint("product", "center", name="uq_product_center"),)
     id = db.Column(db.Integer, primary_key=True)
+    product = db.Column(db.String(20), nullable=False, default="PG", index=True)
     coco = db.Column(db.String(60), default="")
     city = db.Column(db.String(120), default="")
     region = db.Column(db.String(120), default="", index=True)
-    center = db.Column(db.String(200), unique=True, nullable=False)
+    center = db.Column(db.String(200), nullable=False)
     raw = db.Column(db.Text, default="{}")
 
     @property
