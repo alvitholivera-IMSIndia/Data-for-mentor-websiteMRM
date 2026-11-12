@@ -7,14 +7,17 @@
 <div><label>Email</label><input name="email" type="email" required></div>
 <div><label>Name</label><input name="name"></div>
 <div><label>Password</label><input name="password" required minlength="6"></div>
+<div><label>Product(s)</label><div style="display:flex;gap:10px;height:34px;align-items:center">{% for code, p in prods.items() %}<label style="display:inline-flex;gap:4px;align-items:center;margin:0;color:var(--ink);font-size:14px"><input type="checkbox" name="products" value="{{ code }}"> {{ p.label }}</label>{% endfor %}</div></div>
 <div><label>Region(s) – comma separated, * = all</label><input name="regions" list="rl" placeholder="Mumbai"></div>
 <div><label>Centre(s) – empty = whole region</label><input name="centers" list="cl"></div>
 <div><label><input type="checkbox" name="is_admin"> Admin</label></div>
-<button>Add</button></form></div>
+<button>Add</button></form>
+<p class="mute" style="margin-bottom:0">A mentor sees only the ticked product(s), and within them only their region(s). Admins see every product and region.</p></div>
 <div class="card"><h3 style="margin-top:0">Users</h3>
-<table class="plain"><tr><th>Email / name</th><th>Region(s)</th><th>Centre(s)</th><th>Admin</th><th>Active</th><th>New password</th><th></th></tr>
+<table class="plain"><tr><th>Email / name</th><th>Product(s)</th><th>Region(s)</th><th>Centre(s)</th><th>Admin</th><th>Active</th><th>New password</th><th></th></tr>
 {% for x in users %}<tr><form method="post" action="{{ url_for('admin_user_save') }}"><input type="hidden" name="csrf" value="{{ csrf() }}"><input type="hidden" name="id" value="{{ x.id }}">
 <td>{{ x.email }}<br><input name="name" value="{{ x.name }}" style="width:150px"></td>
+<td>{% for code, p in prods.items() %}<label style="display:block;margin:0 0 4px;color:var(--ink);font-size:14px"><input type="checkbox" name="products" value="{{ code }}" {{ 'checked' if code in x.product_list }}> {{ p.label }}</label>{% endfor %}</td>
 <td><input name="regions" value="{{ x.regions }}" list="rl"></td><td><input name="centers" value="{{ x.centers }}" list="cl"></td>
 <td><input type="checkbox" name="is_admin" {{ 'checked' if x.is_admin }}></td><td><input type="checkbox" name="active" {{ 'checked' if x.active }}></td>
 <td><input name="password" placeholder="leave blank" style="width:120px"></td>
