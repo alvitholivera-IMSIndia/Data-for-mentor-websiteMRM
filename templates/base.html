@@ -26,13 +26,15 @@ table.fmt th.total{background:var(--tot)}table.fmt th.grand{background:var(--gra
 table.plain{border-collapse:collapse;width:100%}table.plain td,table.plain th{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 .toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:8px;flex-wrap:wrap}
 a.btn{display:inline-block;padding:7px 12px;border:1px solid var(--brand);border-radius:6px;text-decoration:none;color:#fff;background:var(--brand)}a.btn.ghost{background:none;color:var(--brand)}
+.pills{display:flex;gap:6px}.pill{padding:3px 14px;border:1px solid var(--line);border-radius:999px;text-decoration:none;color:var(--brand);font-weight:700}.pill.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 .empty{text-align:center;color:var(--mute);padding:40px 16px}
 .row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.mute{color:var(--mute);font-size:12px}
 </style></head><body>
 {% if u is defined and u %}<header><h1>MRM Report · FY 26-27</h1>
+{% if product and request.endpoint in ('dashboard', 'compare') %}<span class="pills">{% for code in allowed %}<a class="pill {{ 'on' if code == product }}" href="{{ url_for(request.endpoint, p=code) }}">{{ PRODUCTS[code].label }}</a>{% endfor %}</span>{% endif %}
 <span class="mute">{{ u.email }}</span>
-<a href="{{ url_for('dashboard') }}">Dashboard</a>
-<a href="{{ url_for('compare') }}">Comparison</a>
+<a href="{{ url_for('dashboard', p=product) }}">Dashboard</a>
+<a href="{{ url_for('compare', p=product) }}">Comparison</a>
 {% if u.is_admin %}<a href="{{ url_for('admin_users') }}">Users</a><a href="{{ url_for('admin_data') }}">Data</a>{% endif %}
 <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf() }}"><button class="ghost">Log out</button></form></header>{% endif %}
 <main>{% for c, m in get_flashed_messages(with_categories=true) %}<div class="flash {{ c }}">{{ m }}</div>{% endfor %}
