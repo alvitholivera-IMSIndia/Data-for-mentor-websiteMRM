@@ -3,6 +3,12 @@
 {% for p in plist %}
 <div class="card"><h3 style="margin-top:0">{{ p.label }} data</h3>
 <p>{{ p.n }} centres loaded. Last updated: <b>{{ p.updated or 'never' }}</b> ({{ p.source or '–' }}).</p>
+{% set d = p.detail %}{% if d and (d.only_sim or d.only_myplan or d.missing_myplan or d.missing_sim) %}<details style="margin:0 0 12px" open><summary style="cursor:pointer;color:#b42318">Heads-up from the last sync – some data could not be matched (click to read)</summary>
+{% if d.missing_myplan %}<p style="margin:8px 0 2px"><b>myPlan tab:</b> column(s) not recognised: {{ d.missing_myplan|join(', ') }}.<br><span class="mute">Headers found: {{ d.heads_myplan|join(' | ') }}</span></p>{% endif %}
+{% if d.missing_sim %}<p style="margin:8px 0 2px"><b>SimTest tab:</b> column(s) not recognised: {{ d.missing_sim|join(', ') }}.<br><span class="mute">Headers found: {{ d.heads_sim|join(' | ') }}</span></p>{% endif %}
+{% if d.only_sim %}<p class="mute" style="margin:8px 0 2px">{{ d.only_sim|length }} centre(s) in the SimTest tab but NOT in the myPlan tab (myPlan rows show “–”):</p><p style="margin:0">{{ d.only_sim|join(' · ') }}</p>{% endif %}
+{% if d.only_myplan %}<p class="mute" style="margin:8px 0 2px">{{ d.only_myplan|length }} centre(s) in the myPlan tab but NOT in the SimTest tab (SimTest rows show “–”):</p><p style="margin:0">{{ d.only_myplan|join(' · ') }}</p>{% endif %}
+</details>{% endif %}
 {% if p.gsheet %}<form method="post" action="{{ url_for('admin_sync') }}"><input type="hidden" name="csrf" value="{{ csrf() }}"><input type="hidden" name="product" value="{{ p.code }}"><button>Sync {{ p.label }} now from Google Sheet</button></form>
 {% else %}<p class="mute">Google Sheet sync is off for {{ p.label }}: set <code>{{ p.env }}</code> (the sheet ID) and <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> in Vercel.</p>{% endif %}
 <details style="margin-top:12px"><summary class="mute" style="cursor:pointer">Or upload an .xlsx instead</summary>
