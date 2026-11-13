@@ -12,7 +12,7 @@ PRODUCTS = {
     "PG": {
         "label": "PG", "enabled": True,
         "sheet_env": ("GSHEET_ID_PG", "GSHEET_ID"),          # GSHEET_ID = the variable you already set
-        "myplan_tab": "MyPlan Report", "sim_tab": "CheckingSim",
+        "myplan_tab": "MyPlan Report", "sim_tab": "SimTest Report",
         "heading": "Metric (CAT 26 students till date)",
     },
     "UG": {
