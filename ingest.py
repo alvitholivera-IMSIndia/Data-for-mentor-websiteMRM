@@ -26,10 +26,10 @@ MYPLAN_RULES = {
 }
 SIM_RULES = {
     "enrol": [["enrol"]],
-    "sim_target_total": [["target", "simcat"]],
-    "sim_total": [["total", "simcat"]],
+    "sim_target_total": [["target", "sim"]],           # "Target SimCATs" or "Target SimTests"
+    "sim_total": [["total", "sim"]],                   # "Total SimCATs"  or "Total SimTests"
     "sim_atleast1": [["least"]],
-    "tpe_target": [["tpe", "target"]],
+    "tpe_target": [["tpe", "target"], ["spe", "target"], ["sim", "per", "target"]],
     "sim_cov_target": [["coverage", "target"]],
     "sim_meets": [["bench"]],
 }
@@ -50,6 +50,36 @@ def _to_num(v):
         return None
 
 
+FRIENDLY = {
+    "enrol": "#Enrolments", "myplan_target_total": "Target myPlans", "myplan_total": "Total myPlans",
+    "myplan_atleast1": "At least one myPlan", "mpe_target": "MPE Target", "mp_cov_target": "Coverage Target",
+    "myplan_meets": "# Below myPlan Benchmark", "sim_target_total": "Target SimTests/SimCATs",
+    "sim_total": "Total SimTests/SimCATs", "sim_atleast1": "At least one SimTest", "tpe_target": "TPE Target",
+    "sim_cov_target": "Coverage Target", "sim_meets": "# Below SimTest Benchmark",
+}
+
+
+def _columns(heads, rules):
+    cols = {}
+    for field, kwsets in rules.items():
+        for i, h in enumerate(heads):
+            if h and any(all(k in h for k in ks) for ks in kwsets) and i not in cols.values():
+                cols[field] = i
+                break
+    return cols
+
+
+def describe_columns(rows, rules):
+    """Which expected columns could not be found in this tab (shown to the admin after a sync)."""
+    hdr_i = next((i for i, r in enumerate(rows[:15]) if any("enrol" in _norm(c) for c in r)), None)
+    if hdr_i is None:
+        return {"missing": ["header row"], "headers": []}
+    heads = [_norm(c) for c in rows[hdr_i]]
+    cols = _columns(heads, rules)
+    return {"missing": [FRIENDLY.get(f, f) for f in rules if f not in cols],
+            "headers": [str(c).strip() for c in rows[hdr_i] if c not in (None, "")]}
+
+
 def parse_pivot(rows, rules):
     """rows: list of lists (a sheet). Returns {center: {coco, city, raw{...}}}"""
     hdr_i = next((i for i, r in enumerate(rows[:15])
@@ -67,12 +97,7 @@ def parse_pivot(rows, rules):
     if c_center is None:
         raise ValueError("Could not find the centre column (header with 'Centre')")
 
-    cols = {}
-    for field, kwsets in rules.items():
-        for i, h in enumerate(heads):
-            if h and any(all(k in h for k in ks) for ks in kwsets) and i not in cols.values():
-                cols[field] = i
-                break
+    cols = _columns(heads, rules)
 
     # The benchmark column counts students BELOW the benchmark; we store "meets" everywhere,
     # so convert it (meets = enrolments - below).
@@ -166,6 +191,17 @@ def rows_from_gsheet(product):
 def store(product, myplan_rows, sim_rows, source):
     mp = parse_pivot(myplan_rows, MYPLAN_RULES)
     sm = parse_pivot(sim_rows, SIM_RULES)
+    # Centres spelled slightly differently in the two tabs (extra space, "A -B" vs "A - B", case)
+    # are treated as the same centre. The myPlan spelling wins.
+    nk = lambda x: re.sub(r"\s*-\s*", " - ", re.sub(r"\s+", " ", x.strip().lower()))
+    sm_keys = {}
+    for name in sm:
+        sm_keys.setdefault(nk(name), []).append(name)
+    for name in list(mp):
+        if name not in sm:
+            cand = [n for n in sm_keys.get(nk(name), []) if n not in mp]
+            if len(cand) == 1:
+                sm[name] = sm.pop(cand[0])
     rmap = {m.city: m.region for m in RegionMap.query.all()}
 
     centers = list(dict.fromkeys(list(mp) + list(sm)))
@@ -181,7 +217,12 @@ def store(product, myplan_rows, sim_rows, source):
         db.session.add(CenterData(product=product, coco=coco or "Unknown", city=city, region=rmap.get(city, city),
                                   center=c, raw=json.dumps(raw)))
     stamp = datetime.now(timezone.utc).strftime("%d %b %Y %H:%M UTC")
-    for k, v in ((f"last_updated:{product}", stamp), (f"last_source:{product}", source)):
+    dm, ds = describe_columns(myplan_rows, MYPLAN_RULES), describe_columns(sim_rows, SIM_RULES)
+    detail = json.dumps({"only_myplan": sorted(set(mp) - set(sm)), "only_sim": sorted(set(sm) - set(mp)),
+                         "missing_myplan": dm["missing"], "missing_sim": ds["missing"],
+                         "heads_myplan": dm["headers"], "heads_sim": ds["headers"]})
+    for k, v in ((f"last_updated:{product}", stamp), (f"last_source:{product}", source),
+                 (f"sync_detail:{product}", detail)):
         row = db.session.get(Meta, k) or Meta(key=k)
         row.value = v
         db.session.add(row)
