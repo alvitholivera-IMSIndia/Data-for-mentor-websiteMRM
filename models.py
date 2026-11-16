@@ -41,12 +41,13 @@ class User(db.Model):
 
 
 class CenterData(db.Model):
-    """One row per centre PER PRODUCT. `raw` holds the raw counts coming from the pivots (JSON),
+    """One row per centre PER PRODUCT PER COHORT (exam year). `raw` holds the raw counts coming from the pivots (JSON),
     so adding a new field later does not need a schema change."""
-    __tablename__ = "center_rows"
-    __table_args__ = (db.UniqueConstraint("product", "center", name="uq_product_center"),)
+    __tablename__ = "center_stats"
+    __table_args__ = (db.UniqueConstraint("product", "cohort", "center", name="uq_product_cohort_center"),)
     id = db.Column(db.Integer, primary_key=True)
     product = db.Column(db.String(20), nullable=False, default="PG", index=True)
+    cohort = db.Column(db.String(20), nullable=False, default="", index=True)   # e.g. CAT26, BBA27, LAW28
     coco = db.Column(db.String(60), default="")
     city = db.Column(db.String(120), default="")
     region = db.Column(db.String(120), default="", index=True)
