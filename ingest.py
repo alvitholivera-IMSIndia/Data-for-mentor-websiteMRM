@@ -149,6 +149,151 @@ def match_tab(titles, name):
     raise ValueError(f"Tab '{name}' not found. Tabs present: {titles}")
 
 
+def _gsheet_client(product):
+    """Authenticated Google Sheets access for a product. Returns (get, base_url, tab_titles, label)."""
+    import requests
+    from google.oauth2 import service_account
+    from google.auth.transport.requests import Request
+
+    label = P.PRODUCTS[product]["label"]
+    sheet_id = P.sheet_id(product)
+    sa = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if not sheet_id:
+        raise ValueError(f"{label}: no Google Sheet configured (set {P.env_hint(product)} in Vercel)")
+    if not sa:
+        raise ValueError("GOOGLE_SERVICE_ACCOUNT_JSON is not configured")
+    info = json.loads(sa)
+    creds = service_account.Credentials.from_service_account_info(
+        info, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+    creds.refresh(Request())
+    hdr = {"Authorization": f"Bearer {creds.token}"}
+    base = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}"
+
+    def get(url, **kw):
+        r = requests.get(url, headers=hdr, timeout=60, **kw)
+        if r.status_code in (400, 403, 404):
+            raise ValueError(f"{label}: Google refused the request (HTTP {r.status_code}). Check that the sheet ID is right and "
+                             f"that the sheet is shared (Viewer) with {info.get('client_email', 'the service account')}. "
+                             f"An Excel file stored in Drive must first be saved as a Google Sheet.")
+        r.raise_for_status()
+        return r.json()
+
+    titles = [x["properties"]["title"] for x in get(base, params={"fields": "sheets.properties.title"})["sheets"]]
+    return get, base, titles, label
+
+
+def rows_from_gsheet(product):
+    """Direct Google Sheet read of the two PIVOT tabs (old method, PG_SOURCE=pivot)."""
+    import requests
+    get, base, titles, _ = _gsheet_client(product)
+
+    def grab(name):
+        real = match_tab(titles, name)
+        data = get(f"{base}/values/{requests.utils.quote(real)}", params={"valueRenderOption": "UNFORMATTED_VALUE"})
+        return data.get("values", [])
+
+    return grab(P.tab(product, "myplan")), grab(P.tab(product, "sim"))
+
+
+FRIENDLY = {
+    "enrol": "#Enrolments", "myplan_target_total": "Target myPlans", "myplan_total": "Total myPlans",
+    "myplan_atleast1": "At least one myPlan", "mpe_target": "MPE Target", "mp_cov_target": "Coverage Target",
+    "myplan_meets": "# Below myPlan Benchmark", "sim_target_total": "Target SimTests/SimCATs",
+    "sim_total": "Total SimTests/SimCATs", "sim_atleast1": "At least one SimTest", "tpe_target": "TPE Target",
+    "sim_cov_target": "Coverage Target", "sim_meets": "# Below SimTest Benchmark",
+}
+
+
+def _columns(heads, rules):
+    cols = {}
+    for field, kwsets in rules.items():
+        for i, h in enumerate(heads):
+            if h and any(all(k in h for k in ks) for ks in kwsets) and i not in cols.values():
+                cols[field] = i
+                break
+    return cols
+
+
+def describe_columns(rows, rules):
+    """Which expected columns could not be found in this tab (shown to the admin after a sync)."""
+    hdr_i = next((i for i, r in enumerate(rows[:15]) if any("enrol" in _norm(c) for c in r)), None)
+    if hdr_i is None:
+        return {"missing": ["header row"], "headers": []}
+    heads = [_norm(c) for c in rows[hdr_i]]
+    cols = _columns(heads, rules)
+    return {"missing": [FRIENDLY.get(f, f) for f in rules if f not in cols],
+            "headers": [str(c).strip() for c in rows[hdr_i] if c not in (None, "")]}
+
+
+def parse_pivot(rows, rules):
+    """rows: list of lists (a sheet). Returns {center: {coco, city, raw{...}}}"""
+    hdr_i = next((i for i, r in enumerate(rows[:15])
+                  if any("enrol" in _norm(c) for c in r)), None)
+    if hdr_i is None:
+        raise ValueError("Could not find a header row containing 'Enrolments'")
+    heads = [_norm(c) for c in rows[hdr_i]]
+
+    def find(pred):
+        return next((i for i, h in enumerate(heads) if h and pred(h)), None)
+
+    c_center = find(lambda h: "centre" in h or "center" in h)
+    c_city = find(lambda h: h == "city")
+    c_coco = find(lambda h: "coco" in h)
+    if c_center is None:
+        raise ValueError("Could not find the centre column (header with 'Centre')")
+
+    cols = _columns(heads, rules)
+
+    # The benchmark column counts students BELOW the benchmark; we store "meets" everywhere,
+    # so convert it (meets = enrolments - below).
+    # Default is BELOW (all three product sheets use "# Below ... Benchmark"); only a header that
+    # clearly says "meets / above / >=" is treated as students meeting the benchmark.
+    meets_words = ("≥", ">=", "meet", "above", "achiev", "pass")
+    below_fields = {f for f, i in cols.items()
+                    if f.endswith("_meets") and not any(w in heads[i] for w in meets_words)}
+
+    out, coco, city = {}, "", ""
+    for r in rows[hdr_i + 1:]:
+        r = list(r) + [None] * (len(heads) - len(r))
+        if c_coco is not None and r[c_coco] and "total" not in str(r[c_coco]).lower():
+            coco = str(r[c_coco]).strip()
+        if c_city is not None and r[c_city] and "total" not in str(r[c_city]).lower():
+            city = str(r[c_city]).strip()
+        center = str(r[c_center]).strip() if r[c_center] else ""
+        if not center or "total" in center.lower():
+            continue                         # pivot subtotal / grand-total rows
+        raw = {f: _to_num(r[i]) for f, i in cols.items()}
+        if raw.get("enrol") is None:
+            continue
+        for f in below_fields:
+            if raw.get(f) is not None:
+                raw[f] = raw["enrol"] - raw[f]
+        out[center] = {"coco": coco, "city": city, "raw": raw}
+    return out
+
+
+def _find_sheet(wb, name):
+    for ws in wb.worksheets:
+        if ws.title.strip().lower() == name.lower():
+            return ws
+    raise ValueError(f"Sheet '{name}' not found. Sheets present: {[w.title for w in wb.worksheets]}")
+
+
+def rows_from_xlsx(fileobj, product):
+    wb = openpyxl.load_workbook(io.BytesIO(fileobj.read()), data_only=True, read_only=True)
+    mp = [list(r) for r in _find_sheet(wb, P.tab(product, "myplan")).iter_rows(values_only=True)]
+    sm = [list(r) for r in _find_sheet(wb, P.tab(product, "sim")).iter_rows(values_only=True)]
+    return mp, sm
+
+
+def match_tab(titles, name):
+    """Case/space-insensitive tab lookup. Returns the real title."""
+    for t in titles:
+        if t.strip().lower() == name.strip().lower():
+            return t
+    raise ValueError(f"Tab '{name}' not found. Tabs present: {titles}")
+
+
 def rows_from_gsheet(product):
     """Direct Google Sheet read through a service account (share the sheet with its email)."""
     import requests
@@ -205,7 +350,8 @@ def store(product, myplan_rows, sim_rows, source):
     rmap = {m.city: m.region for m in RegionMap.query.all()}
 
     centers = list(dict.fromkeys(list(mp) + list(sm)))
-    CenterData.query.filter_by(product=product).delete()
+    cohort = P.cohorts(product)[0]          # pivots only ever hold the current year
+    CenterData.query.filter_by(product=product, cohort=cohort).delete()
     for c in centers:
         raw, coco, city = {}, "", ""
         for src in (mp.get(c), sm.get(c)):
@@ -214,7 +360,7 @@ def store(product, myplan_rows, sim_rows, source):
                 coco = coco or src["coco"]
                 city = city or src["city"]
         city = city or c.split(" - ")[0]
-        db.session.add(CenterData(product=product, coco=coco or "Unknown", city=city, region=rmap.get(city, city),
+        db.session.add(CenterData(product=product, cohort=cohort, coco=coco or "Unknown", city=city, region=rmap.get(city, city),
                                   center=c, raw=json.dumps(raw)))
     stamp = datetime.now(timezone.utc).strftime("%d %b %Y %H:%M UTC")
     dm, ds = describe_columns(myplan_rows, MYPLAN_RULES), describe_columns(sim_rows, SIM_RULES)
