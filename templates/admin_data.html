@@ -3,7 +3,18 @@
 {% for p in plist %}
 <div class="card"><h3 style="margin-top:0">{{ p.label }} data</h3>
 <p>{{ p.n }} centres loaded. Last updated: <b>{{ p.updated or 'never' }}</b> ({{ p.source or '–' }}).</p>
-{% set d = p.detail %}{% if d and (d.only_sim or d.only_myplan or d.missing_myplan or d.missing_sim) %}<details style="margin:0 0 12px" open><summary style="cursor:pointer;color:#b42318">Heads-up from the last sync – some data could not be matched (click to read)</summary>
+{% set d = p.detail %}
+{% if d and d.mode == 'enrolment' %}<div style="margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px">
+<b>Last calculation (from the “{{ p.tabs[0] }}” tab)</b><br>
+{% for c in p.cohorts %}{% set x = d.cohorts.get(c) %}<span>{{ c }}: {% if x %}{{ x.centres }} centres, {{ x.students }} students{% else %}<span style="color:#b42318">no students found</span>{% endif %}</span>{{ ' · ' if not loop.last }}{% endfor %}<br>
+<span class="mute">{{ d.rows }} student rows read · {{ d.ignored }} left out as “Ignore” / no centre{% if d.no_cohort %} · <span style="color:#b42318">{{ d.no_cohort }} rows had no recognisable year</span>{% endif %}{% if d.month %} · latest month column: {{ d.month }}{% endif %}</span>
+{% if d.other_cohorts %}<br><span style="color:#b42318">Other cohorts found but not shown: {{ d.other_cohorts|join(', ') }} – if one of these should be “This year / Next year”, tell the admin to change <code>{{ p.code }}_COHORTS</code>.</span>{% endif %}
+{% if d.missing %}<br><span style="color:#b42318">Columns not found: {{ d.missing|join(', ') }}</span>{% endif %}
+{% if d.flag_mismatch_myplan or d.flag_mismatch_sim %}<br><span style="color:#b42318">The sheet’s own “Below … Benchmark” flag disagrees with “total &lt; benchmark” for {{ d.flag_mismatch_myplan }} myPlan row(s) and {{ d.flag_mismatch_sim }} SimTest row(s){% if d.flag_examples.myplan or d.flag_examples.sim %} (e.g. {{ (d.flag_examples.myplan + d.flag_examples.sim)|join(', ') }}){% endif %}.</span>{% endif %}
+<details style="margin-top:6px"><summary class="mute" style="cursor:pointer">Values found in “Eligible for myPlans” and “COCO / Non COCO”</summary>
+<p style="margin:6px 0 0">{% for k, v in d.eligible.items() %}{{ k }}: {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</p>
+<p style="margin:2px 0 0">{% for k, v in d.coco.items() %}{{ k }}: {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</p></details>
+</div>{% endif %}{% if d and (d.only_sim or d.only_myplan or d.missing_myplan or d.missing_sim) %}<details style="margin:0 0 12px" open><summary style="cursor:pointer;color:#b42318">Heads-up from the last sync – some data could not be matched (click to read)</summary>
 {% if d.missing_myplan %}<p style="margin:8px 0 2px"><b>myPlan tab:</b> column(s) not recognised: {{ d.missing_myplan|join(', ') }}.<br><span class="mute">Headers found: {{ d.heads_myplan|join(' | ') }}</span></p>{% endif %}
 {% if d.missing_sim %}<p style="margin:8px 0 2px"><b>SimTest tab:</b> column(s) not recognised: {{ d.missing_sim|join(', ') }}.<br><span class="mute">Headers found: {{ d.heads_sim|join(' | ') }}</span></p>{% endif %}
 {% if d.only_sim %}<p class="mute" style="margin:8px 0 2px">{{ d.only_sim|length }} centre(s) in the SimTest tab but NOT in the myPlan tab (myPlan rows show “–”):</p><p style="margin:0">{{ d.only_sim|join(' · ') }}</p>{% endif %}
@@ -13,7 +24,7 @@
 {% else %}<p class="mute">Google Sheet sync is off for {{ p.label }}: set <code>{{ p.env }}</code> (the sheet ID) and <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> in Vercel.</p>{% endif %}
 <details style="margin-top:12px"><summary class="mute" style="cursor:pointer">Or upload an .xlsx instead</summary>
 <form method="post" action="{{ url_for('admin_upload') }}" enctype="multipart/form-data" class="row" style="margin-top:8px"><input type="hidden" name="csrf" value="{{ csrf() }}"><input type="hidden" name="product" value="{{ p.code }}">
-<div><label>{{ p.label }} workbook (.xlsx with tabs “{{ p.tabs[0] }}” and “{{ p.tabs[1] }}”)</label><input type="file" name="file" accept=".xlsx,.xlsm" required></div><button class="ghost">Upload &amp; refresh</button></form></details>
+<div><label>{{ p.label }} workbook (.xlsx, tab{{ 's' if p.tabs|length > 1 }} {% for x in p.tabs %}“{{ x }}”{{ ' and ' if not loop.last }}{% endfor %})</label><input type="file" name="file" accept=".xlsx,.xlsm" required></div><button class="ghost">Upload &amp; refresh</button></form></details>
 </div>
 {% endfor %}
 <div class="card"><h3 style="margin-top:0">City → Region mapping <span class="mute">(shared by all products)</span></h3>
