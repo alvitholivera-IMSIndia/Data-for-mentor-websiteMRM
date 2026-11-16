@@ -9,7 +9,7 @@ SUM_FIELDS = [
     "enrol",
     "myplan_target_total", "myplan_total", "myplan_atleast1", "myplan_meets",
     "sim_target_total", "sim_total", "sim_atleast1", "sim_meets",
-    "bt_total", "mt_total",
+    "bt_total", "mt_total", "oct_myplans", "oct_sim",
 ]
 # raw fields that are per-student targets -> combined as enrolment-weighted average
 WAVG_FIELDS = ["mpe_target", "mp_cov_target", "tpe_target", "sim_cov_target"]
@@ -39,6 +39,10 @@ def _pair(actual, target, d=2):
     if target is None:
         return f"{actual:.{d}f}"
     return f"{actual:.{d}f} ({target:.{d}f})"
+
+
+def _count(x):
+    return DASH if x is None else f"{x:.0f}"
 
 
 def _pct(x):
@@ -71,7 +75,17 @@ METRICS = [
      "fn": lambda a: _pair(_div(a.get("sim_atleast1"), a.get("enrol")), a.get("sim_cov_target"))},
     {"label": "% student below Benchmark (SimTest)",
      "fn": lambda a: _pct(_below(a, "sim_meets"))},
+    # counts (as in the Looker report). {m} = latest month in the Enrolment File, e.g. "Oct"
+    {"label": "{m} myPlans", "fn": lambda a: _count(a.get("oct_myplans"))},
+    {"label": "Total myPlans", "fn": lambda a: _count(a.get("myplan_total"))},
+    {"label": "{m} SimTests", "fn": lambda a: _count(a.get("oct_sim"))},
+    {"label": "Total SimTests", "fn": lambda a: _count(a.get("sim_total"))},
 ]
+
+
+def labelled(month):
+    """METRICS with the month filled in ('Oct myPlans'); falls back to 'Latest month'."""
+    return [dict(m, label=m["label"].replace("{m}", month or "Latest month")) for m in METRICS]
 
 
 def aggregate(raws):
