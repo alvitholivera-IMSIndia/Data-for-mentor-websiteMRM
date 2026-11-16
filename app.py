@@ -1,6 +1,7 @@
 import csv
 import importlib.util
 import io
+import json
 import os
 import re
 import secrets
@@ -13,6 +14,7 @@ from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_t
 from sqlalchemy import inspect, text
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import enrol
 import ingest
 import metrics
 import products as P
@@ -46,24 +48,32 @@ def create_app():
     state = {"ready": False}
 
     def ensure_schema():
-        """Upgrade an existing (PG-only) database in place. Safe to run on every start."""
+        """Upgrade an existing database in place. Safe to run on every start."""
         try:
             insp = inspect(db.engine)
             tables = set(insp.get_table_names())
             if "users" in tables and "products" not in {c["name"] for c in insp.get_columns("users")}:
                 db.session.execute(text("ALTER TABLE users ADD COLUMN products VARCHAR(100) NOT NULL DEFAULT 'PG'"))
                 db.session.commit()
-            # one time: carry the old PG rows into the product-aware table
-            if "center_data" in tables and not db.session.get(Meta, "migrated_products"):
-                if db.session.execute(text("SELECT COUNT(*) FROM center_rows")).scalar() == 0:
-                    db.session.execute(text(
-                        "INSERT INTO center_rows (product, coco, city, region, center, raw) "
-                        "SELECT 'PG', coco, city, region, center, raw FROM center_data"))
-                for old, new in (("last_updated", "last_updated:PG"), ("last_source", "last_source:PG")):
-                    m = db.session.get(Meta, old)
-                    if m and not db.session.get(Meta, new):
-                        db.session.add(Meta(key=new, value=m.value))
-                db.session.add(Meta(key="migrated_products", value="1"))
+            # one time: carry the existing (pivot) rows into the cohort table as "This year"
+            if not db.session.get(Meta, "migrated_cohorts"):
+                if db.session.execute(text("SELECT COUNT(*) FROM center_stats")).scalar() == 0:
+                    cols = "coco, city, region, center, raw"
+                    if "center_rows" in tables:
+                        for code in P.PRODUCTS:
+                            db.session.execute(text(
+                                f"INSERT INTO center_stats (product, cohort, {cols}) "
+                                f"SELECT product, :c, {cols} FROM center_rows WHERE product = :p"),
+                                {"c": P.cohorts(code)[0], "p": code})
+                    elif "center_data" in tables:
+                        db.session.execute(text(
+                            f"INSERT INTO center_stats (product, cohort, {cols}) "
+                            f"SELECT 'PG', :c, {cols} FROM center_data"), {"c": P.cohorts("PG")[0]})
+                        for old, new in (("last_updated", "last_updated:PG"), ("last_source", "last_source:PG")):
+                            m = db.session.get(Meta, old)
+                            if m and not db.session.get(Meta, new):
+                                db.session.add(Meta(key=new, value=m.value))
+                db.session.add(Meta(key="migrated_cohorts", value="1"))
                 db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -135,19 +145,41 @@ def create_app():
                 session["product"] = g.product
         return g.product
 
+    def active_year(u):
+        """This year / Next year -> ('this'|'next', cohort code such as CAT26) for the active product."""
+        if "year" not in g:
+            product = active_product(u)
+            key = (request.args.get("y") or session.get("year") or "this").lower()
+            key = key if key in P.YEAR_KEYS else "this"
+            g.year = (key, P.cohort_for(product, key) if product else "")
+            session["year"] = key
+        return g.year
+
     @app.context_processor
     def _inject():
         u = current_user()
         if not u:
             return {}
-        return dict(allowed=allowed_products(u), product=active_product(u), PRODUCTS=P.PRODUCTS)
+        product = active_product(u)
+        year_key, cohort = active_year(u)
+        years = []
+        if product:
+            years = [dict(key=k, label=P.YEAR_LABELS[k], pretty=P.pretty(P.cohort_for(product, k)))
+                     for k in P.YEAR_KEYS if k == "this" or len(P.cohorts(product)) > 1]
+        return dict(allowed=allowed_products(u), product=product, PRODUCTS=P.PRODUCTS,
+                    year_key=year_key, cohort=cohort, years=years)
+
+    def month_label(product):
+        m = db.session.get(Meta, f"month_label:{product}")
+        return m.value if m else ""
 
     def last_updated(product):
         m = db.session.get(Meta, f"last_updated:{product}")
         return m.value if m else None
 
-    def visible_rows(u, product):
-        rows = CenterData.query.filter_by(product=product).order_by(CenterData.id).all() if product else []
+    def visible_rows(u, product, cohort):
+        rows = (CenterData.query.filter_by(product=product, cohort=cohort).order_by(CenterData.id).all()
+                if product and cohort else [])
         if u.sees_everything:
             return rows
         regs = {r.lower() for r in u.region_list}
@@ -200,7 +232,8 @@ def create_app():
 
     def dash_context(u):
         product = active_product(u)
-        rows = visible_rows(u, product)
+        year_key, cohort = active_year(u)
+        rows = visible_rows(u, product, cohort)
         f = {k: request.args.get(k, "") for k in FILTER_KEYS}
         opts = {
             "coco": sorted({r.coco for r in rows if r.coco}),
@@ -219,27 +252,27 @@ def create_app():
         has_sel = any(f.values()) or not selectable
         expand_all = request.args.get("expand") == "1"
         cols = build_cols(u, rows, f, expand_all) if has_sel else []
-        return dict(f=f, opts=opts, has_sel=has_sel, expand_all=expand_all, cols=cols, product=product)
+        return dict(f=f, opts=opts, has_sel=has_sel, expand_all=expand_all, cols=cols, product=product, cohort=cohort,
+                    metrics=metrics.labelled(month_label(product)), title=P.heading(cohort))
 
     def _safe(x):          # stop spreadsheet formula injection in exported text
         x = str(x)
         return "'" + x if x[:1] in ("=", "+", "-", "@") else x
 
-    def csv_response(cols, name, product):
+    def csv_response(cols, name, product, cohort):
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow([P.PRODUCTS[product]["heading"]] + [_safe(c["label"]) for c in cols])
-        for i, m in enumerate(metrics.METRICS):
+        w.writerow([P.heading(cohort)] + [_safe(c["label"]) for c in cols])
+        for i, m in enumerate(metrics.labelled(month_label(product))):
             w.writerow([m["label"]] + [c["vals"][i] for c in cols])
         return Response("\ufeff" + buf.getvalue(), mimetype="text/csv; charset=utf-8",
-                        headers={"Content-Disposition": f"attachment; filename={name}-{product}-{date.today():%Y-%m-%d}.csv"})
+                        headers={"Content-Disposition": f"attachment; filename={name}-{product}-{cohort}-{date.today():%Y-%m-%d}.csv"})
 
     @app.route("/")
     @login_required()
     def dashboard(u):
         ctx = dash_context(u)
-        return render_template("dashboard.html", u=u, metrics=metrics.METRICS,
-                               updated=last_updated(ctx["product"]), **ctx)
+        return render_template("dashboard.html", u=u, updated=last_updated(ctx["product"]), **ctx)
 
     @app.route("/export.csv")
     @login_required()
@@ -247,12 +280,13 @@ def create_app():
         ctx = dash_context(u)
         if not ctx["has_sel"] or not ctx["cols"]:
             abort(400, "Select something on the dashboard first")
-        return csv_response(ctx["cols"], "mrm-report", ctx["product"])
+        return csv_response(ctx["cols"], "mrm-report", ctx["product"], ctx["cohort"])
 
     # ---------- comparison ----------
     def compare_context(u):
         product = active_product(u)
-        rows = visible_rows(u, product)
+        year_key, cohort = active_year(u)
+        rows = visible_rows(u, product, cohort)
         cities = sorted({r.city for r in rows if r.city})
         sel = []
         for i in (1, 2, 3):
@@ -264,14 +298,14 @@ def create_app():
             for c in picked:
                 cols.append({"label": c, "kind": "total",
                              "vals": metrics.column_values([r.data for r in rows if r.city == c])})
-        return dict(cities=cities, sel=sel, cols=cols, product=product)
+        return dict(cities=cities, sel=sel, cols=cols, product=product, cohort=cohort,
+                    metrics=metrics.labelled(month_label(product)), title=P.heading(cohort))
 
     @app.route("/compare")
     @login_required()
     def compare(u):
         ctx = compare_context(u)
-        return render_template("compare.html", u=u, metrics=metrics.METRICS,
-                               updated=last_updated(ctx["product"]), **ctx)
+        return render_template("compare.html", u=u, updated=last_updated(ctx["product"]), **ctx)
 
     @app.route("/compare.csv")
     @login_required()
@@ -279,7 +313,7 @@ def create_app():
         ctx = compare_context(u)
         if not ctx["cols"]:
             abort(400, "Select at least 2 cities first")
-        return csv_response(ctx["cols"], "mrm-comparison", ctx["product"])
+        return csv_response(ctx["cols"], "mrm-comparison", ctx["product"], ctx["cohort"])
 
     # ---------- admin: users ----------
     @app.route("/admin/users")
@@ -349,22 +383,38 @@ def create_app():
         for c in P.enabled_codes():
             plist.append(dict(code=c, label=P.PRODUCTS[c]["label"],
                               n=CenterData.query.filter_by(product=c).count(),
+                              mode=P.source(c), cohorts=P.cohorts(c),
                               updated=meta.get(f"last_updated:{c}"), source=meta.get(f"last_source:{c}"),
+                              detail=json.loads(meta.get(f"sync_detail:{c}") or "{}"),
                               gsheet=bool(P.sheet_id(c)) and bool(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")),
-                              env=P.env_hint(c), tabs=(P.tab(c, "myplan"), P.tab(c, "sim"))))
+                              env=P.env_hint(c),
+                              tabs=(P.enrol_tab(c),) if P.source(c) == "enrolment" else (P.tab(c, "myplan"), P.tab(c, "sim"))))
         return render_template("admin_data.html", u=u, plist=plist, regionmap=text_)
 
     def _product_from_form():
         code = (request.form.get("product") or "").upper()
         return code if code in P.enabled_codes() else None
 
-    def _run(product, loader, label):
+    def do_import(product, label, xlsx=None):
+        """Read + calculate + save one product. Returns a message. Raises on failure."""
+        name = P.PRODUCTS[product]["label"]
+        if P.source(product) == "pivot":
+            rows = (ingest.rows_from_xlsx(xlsx, product) if xlsx is not None else ingest.rows_from_gsheet(product))
+            n, mismatch = ingest.store(product, *rows, source=label)
+            msg = f"{name}: loaded {n} centres from {label} (pivot tabs)."
+            return msg + (f" Only in one sheet: {', '.join(mismatch[:8])}" if mismatch else "")
+        rows = enrol.rows_from_xlsx(xlsx, product) if xlsx is not None else enrol.rows_from_gsheet(product)
+        n, parts, rep = enrol.store(product, rows, label)
+        msg = f"{name}: calculated from {rep['rows']} student rows in {label} – " + "; ".join(parts) + "."
+        if rep["ignored"]:
+            msg += f" {rep['ignored']} 'Ignore' rows left out."
+        if rep["other_cohorts"]:
+            msg += f" Also found cohort(s) {', '.join(rep['other_cohorts'])} (not shown)."
+        return msg
+
+    def _run(product, label, xlsx=None):
         try:
-            n, mismatch = ingest.store(product, *loader(), source=label)
-            msg = f"{P.PRODUCTS[product]['label']}: loaded {n} centres from {label}."
-            if mismatch:
-                msg += f" Only in one sheet: {', '.join(mismatch[:8])}"
-            flash(msg, "ok")
+            flash(do_import(product, label, xlsx), "ok")
         except Exception as e:  # show the real reason to the admin
             db.session.rollback()
             flash(f"Import failed: {e}", "err")
@@ -378,7 +428,7 @@ def create_app():
         elif not fl or not fl.filename.lower().endswith((".xlsx", ".xlsm")):
             flash("Choose the .xlsx file", "err")
         else:
-            _run(product, lambda: ingest.rows_from_xlsx(fl.stream, product), f"upload: {fl.filename}")
+            _run(product, f"upload: {fl.filename}", xlsx=fl.stream)
         return redirect(url_for("admin_data"))
 
     @app.route("/admin/data/sync", methods=["POST"])
@@ -388,7 +438,7 @@ def create_app():
         if not product:
             flash("Unknown product", "err")
         else:
-            _run(product, lambda: ingest.rows_from_gsheet(product), "Google Sheet")
+            _run(product, "Google Sheet")
         return redirect(url_for("admin_data"))
 
     @app.route("/admin/data/regions", methods=["POST"])
@@ -415,12 +465,11 @@ def create_app():
             if not P.sheet_id(code):
                 continue
             try:
-                n, _ = ingest.store(code, *ingest.rows_from_gsheet(code), source="Google Sheet (cron)")
-                out[code] = n
+                out[code] = do_import(code, "Google Sheet (cron)")
             except Exception as e:
                 db.session.rollback()
                 out[code] = f"error: {e}"
-        return jsonify(ok=all(isinstance(v, int) for v in out.values()), centres=out)
+        return jsonify(ok=not any(str(v).startswith("error") for v in out.values()), result=out)
 
     return app
 
