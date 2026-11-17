@@ -36,13 +36,23 @@ def _num(v):
         return None
 
 
-def cohort_of(program, variant, combo):
-    combo = str(combo or "").strip().upper()
-    if re.fullmatch(r"[A-Z]+\d{2}", combo):
-        return combo
-    year = re.search(r"(20\d{2})", str(variant or ""))
-    prog = re.sub(r"[^A-Z]", "", str(program or "").upper())
-    return f"{prog}{year.group(1)[2:]}" if year and prog else None
+def cohort_of(program, variant, combo, final=None, source="combo"):
+    """Course group + exam year, e.g. CAT26, BBA27, IPMINDORE27, YRLLB27.
+    source='final' reads "Final Course Name" first (separates IPM BBA from IPM Indore);
+    otherwise "Year Product Combo". A broken cell falls back to Program + the year in the Variant name."""
+    def clean(v):
+        v = re.sub(r"\s+", "", str(v or "")).upper()
+        return v if re.fullmatch(r"[A-Z]+\d{2}", v) else None
+
+    code = next((c for c in ((clean(final),) if source == "final" else ()) + (clean(combo),) if c), None)
+    if not code:
+        year = re.search(r"(20\d{2})", str(variant or ""))
+        prog = re.sub(r"[^A-Z]", "", str(program or "").upper())
+        code = f"{prog}{year.group(1)[2:]}" if year and prog else None
+    if code:
+        m = re.fullmatch(r"([A-Z]+)(\d{2})", code)
+        code = P.COURSE_ALIASES.get(m.group(1), m.group(1)) + m.group(2)
+    return code
 
 
 # column name -> test on the normalised header (spaces/symbols removed, lower case)
@@ -51,6 +61,7 @@ COLUMN_TESTS = {
     "program": lambda k: k.startswith("program"),
     "variant": lambda k: k.startswith("variant"),
     "combo": lambda k: k == "yearproductcombo",
+    "final": lambda k: k == "finalcoursename",
     "centre": lambda k: k == "reportcitycentrefinal",
     "city": lambda k: k == "city",
     "coco": lambda k: k.startswith("coco"),
@@ -105,7 +116,8 @@ def compute(rows, product):
     month_label = month.title() if month else ""
 
     stats, rep = {}, Counter()
-    seen_elig, seen_coco = Counter(), Counter()
+    seen_elig, seen_coco, pairs = Counter(), Counter(), Counter()
+    source = P.cohort_from(product)
     flag_bad = {"myplan": [], "sim": []}
 
     for r in rows[1:]:
@@ -121,7 +133,8 @@ def compute(rows, product):
         if centre in ("", "-") or "ignore" in elig.lower() or "ignore" in coco.lower():
             rep["ignored"] += 1
             continue
-        cohort = cohort_of(g("program"), g("variant"), g("combo"))
+        cohort = cohort_of(g("program"), g("variant"), g("combo"), g("final"), source)
+        pairs[f"{str(g('combo') or '-').strip()} | {str(g('final') or '-').strip()} → {cohort or '?'}"] += 1
         if not cohort:
             rep["no_cohort"] += 1
             continue
@@ -188,6 +201,7 @@ def compute(rows, product):
         "eligible": dict(seen_elig), "coco": dict(seen_coco), "month": month_label,
         "missing": missing, "flag_mismatch_myplan": rep["flag_mismatch_myplan"],
         "flag_mismatch_sim": rep["flag_mismatch_sim"], "flag_examples": flag_bad,
+        "pairs": dict(pairs.most_common(30)), "cohort_from": source,
     }
     return out, rep_out
 
