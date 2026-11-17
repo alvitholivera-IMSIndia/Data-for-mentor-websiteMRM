@@ -17,9 +17,9 @@ WAVG_FIELDS = ["mpe_target", "mp_cov_target", "tpe_target", "sim_cov_target"]
 DASH = "–"
 
 # Regions kept as separate centre columns by default (the format file shows Bangalore by centre)
-EXPAND_REGIONS = ["Bangalore"]
+EXPAND_REGIONS = []          # regions always shown centre-by-centre (empty = only when you pick the region)
 # Left out of the grand-total column (format file: "All India (Excl Bangalore)")
-EXCLUDE_FROM_TOTAL = ["Bangalore"]
+EXCLUDE_FROM_TOTAL = []      # regions left out of the "All India" total (empty = everything is included)
 
 
 def _div(a, b):
