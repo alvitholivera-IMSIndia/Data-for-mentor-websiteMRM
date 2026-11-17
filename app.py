@@ -145,14 +145,20 @@ def create_app():
                 session["product"] = g.product
         return g.product
 
+    def cohort_list(product):
+        """Configured cohorts first (This year, Next year, extras), then any other course group found in the data."""
+        cs = P.cohorts(product)
+        have = [r[0] for r in db.session.query(CenterData.cohort).filter_by(product=product).distinct() if r[0]]
+        return cs + sorted(c for c in have if c not in cs)
+
     def active_year(u):
-        """This year / Next year -> ('this'|'next', cohort code such as CAT26) for the active product."""
+        """This year / Next year / an extra course group -> (url key, cohort code) for the active product."""
         if "year" not in g:
             product = active_product(u)
+            cl = cohort_list(product) if product else []
             want = (request.args.get("y") or session.get("year") or "this")
-            cs = P.cohorts(product) if product else []
-            key = want.lower() if want.lower() in P.YEAR_KEYS else (want.upper() if want.upper() in cs[2:] else "this")
-            g.year = (key, P.cohort_for(product, key) if product else "")
+            key = want.lower() if want.lower() in P.YEAR_KEYS else (want.upper() if want.upper() in cl[2:] else "this")
+            g.year = (key, P.cohort_for(product, key, cl) if product else "")
             session["year"] = key
         return g.year
 
@@ -165,15 +171,18 @@ def create_app():
         year_key, cohort = active_year(u)
         years = []
         if product:
+            cl = cohort_list(product)
             have = {r[0] for r in db.session.query(CenterData.cohort).filter_by(product=product).distinct()}
-            for i, c in enumerate(P.cohorts(product)):
+            for i, c in enumerate(cl):
                 if i >= 2 and c not in have:        # extra buttons only once they have students
                     continue
-                key = P.year_key_of(product, c)
+                key = P.year_key_of(cl, c)
                 label = P.YEAR_LABELS.get(key, "")
                 years.append(dict(key=key, text=f"{label} · {P.pretty(c)}" if label else P.pretty(c)))
         return dict(allowed=allowed_products(u), product=product, PRODUCTS=P.PRODUCTS,
                     year_key=year_key, cohort=cohort, years=years)
+
+    app.jinja_env.globals["pretty"] = P.pretty
 
     def month_label(product):
         m = db.session.get(Meta, f"month_label:{product}")
@@ -392,7 +401,9 @@ def create_app():
         meta = {m.key: m.value for m in Meta.query.all()}
         plist = []
         for c in P.enabled_codes():
-            plist.append(dict(code=c, label=P.PRODUCTS[c]["label"],
+            det = json.loads(meta.get(f"sync_detail:{c}") or "{}")
+            shown = P.cohorts(c) + [x for x in det.get("cohorts", {}) if x not in P.cohorts(c)]
+            plist.append(dict(code=c, label=P.PRODUCTS[c]["label"], cohort_list=shown,
                               n=CenterData.query.filter_by(product=c).count(),
                               mode=P.source(c), cohorts=P.cohorts(c),
                               updated=meta.get(f"last_updated:{c}"), source=meta.get(f"last_source:{c}"),
