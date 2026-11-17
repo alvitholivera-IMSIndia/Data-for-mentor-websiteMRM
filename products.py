@@ -28,7 +28,9 @@ PRODUCTS = {
     "LAW": {
         "label": "Law", "enabled": True,
         "sheet_env": ("GSHEET_ID_LAW",),
-        "enrol_tab": "Enrolment File", "cohorts": ["LAW27", "LAW28"],
+        "enrol_tab": "Enrolment File",
+        # first two = "This year" / "Next year"; the rest are extra buttons, shown once they have students
+        "cohorts": ["LAW27", "LAW28", "YRLLB27", "YRLLB28"],
         "myplan_tab": "MyPlan Report", "sim_tab": "SimTest Report",
     },
 }
@@ -74,13 +76,24 @@ def cohorts(code):
 
 
 def cohort_for(code, year_key):
+    """year_key = 'this' | 'next' | an extra cohort code such as 'YRLLB27'."""
     cs = cohorts(code)
+    key = (year_key or "this").upper()
+    if key in cs:
+        return key
     return cs[1] if year_key == "next" and len(cs) > 1 else cs[0]
 
 
+def year_key_of(code, cohort):
+    """The URL key for a cohort: this / next for the first two, the cohort code for the rest."""
+    cs = cohorts(code)
+    return "this" if cohort == cs[0] else ("next" if len(cs) > 1 and cohort == cs[1] else cohort)
+
+
 def pretty(cohort):
-    """CAT26 -> 'CAT 26'."""
-    return re.sub(r"^([A-Za-z]+)(\d+)$", r"\1 \2", cohort or "")
+    """CAT26 -> 'CAT 26'; YRLLB27 -> 'LLB 27' (a leading YR is dropped)."""
+    c = re.sub(r"^YR(?=[A-Za-z]+\d)", "", cohort or "")
+    return re.sub(r"^([A-Za-z]+)(\d+)$", r"\1 \2", c)
 
 
 def heading(cohort):
