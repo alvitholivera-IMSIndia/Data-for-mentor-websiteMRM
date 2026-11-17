@@ -6,11 +6,13 @@
 {% set d = p.detail %}
 {% if d and d.mode == 'enrolment' %}<div style="margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px">
 <b>Last calculation (from the “{{ p.tabs[0] }}” tab)</b><br>
-{% for c in p.cohorts %}{% set x = d.cohorts.get(c) %}<span>{{ c }}: {% if x %}{{ x.centres }} centres, {{ x.students }} students{% elif loop.index0 < 2 %}<span style="color:#b42318">no students found</span>{% else %}<span class="mute">none yet</span>{% endif %}</span>{{ ' · ' if not loop.last }}{% endfor %}<br>
+{% for c in p.cohort_list %}{% set x = d.cohorts.get(c) %}<span>{{ pretty(c) }}: {% if x %}{{ x.centres }} centres, {{ x.students }} students{% elif loop.index0 < 2 %}<span style="color:#b42318">no students found</span>{% else %}<span class="mute">none yet</span>{% endif %}</span>{{ ' · ' if not loop.last }}{% endfor %}<br>
 <span class="mute">{{ d.rows }} student rows read · {{ d.ignored }} left out as “Ignore” / no centre{% if d.no_cohort %} · <span style="color:#b42318">{{ d.no_cohort }} rows had no recognisable year</span>{% endif %}{% if d.month %} · latest month column: {{ d.month }}{% endif %}</span>
-{% if d.other_cohorts %}<br><span style="color:#b42318">Other cohorts found but not shown: {{ d.other_cohorts|join(', ') }} – if one of these should be “This year / Next year”, tell the admin to change <code>{{ p.code }}_COHORTS</code>.</span>{% endif %}
+
 {% if d.missing %}<br><span style="color:#b42318">Columns not found: {{ d.missing|join(', ') }}</span>{% endif %}
 {% if d.flag_mismatch_myplan or d.flag_mismatch_sim %}<br><span style="color:#b42318">The sheet’s own “Below … Benchmark” flag disagrees with “total &lt; benchmark” for {{ d.flag_mismatch_myplan }} myPlan row(s) and {{ d.flag_mismatch_sim }} SimTest row(s){% if d.flag_examples.myplan or d.flag_examples.sim %} (e.g. {{ (d.flag_examples.myplan + d.flag_examples.sim)|join(', ') }}){% endif %}.</span>{% endif %}
+{% if d.pairs %}<details style="margin-top:6px"><summary class="mute" style="cursor:pointer">Course groups found (Year Product Combo | Final Course Name → button){{ ' – using ' + d.cohort_from if d.cohort_from }}</summary>
+<p style="margin:6px 0 0">{% for k, v in d.pairs.items() %}{{ k }}: <b>{{ v }}</b>{{ ' · ' if not loop.last }}{% endfor %}</p></details>{% endif %}
 <details style="margin-top:6px"><summary class="mute" style="cursor:pointer">Values found in “Eligible for myPlans” and “COCO / Non COCO”</summary>
 <p style="margin:6px 0 0">{% for k, v in d.eligible.items() %}{{ k }}: {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</p>
 <p style="margin:2px 0 0">{% for k, v in d.coco.items() %}{{ k }}: {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</p></details>
