@@ -149,8 +149,9 @@ def create_app():
         """This year / Next year -> ('this'|'next', cohort code such as CAT26) for the active product."""
         if "year" not in g:
             product = active_product(u)
-            key = (request.args.get("y") or session.get("year") or "this").lower()
-            key = key if key in P.YEAR_KEYS else "this"
+            want = (request.args.get("y") or session.get("year") or "this")
+            cs = P.cohorts(product) if product else []
+            key = want.lower() if want.lower() in P.YEAR_KEYS else (want.upper() if want.upper() in cs[2:] else "this")
             g.year = (key, P.cohort_for(product, key) if product else "")
             session["year"] = key
         return g.year
@@ -164,8 +165,13 @@ def create_app():
         year_key, cohort = active_year(u)
         years = []
         if product:
-            years = [dict(key=k, label=P.YEAR_LABELS[k], pretty=P.pretty(P.cohort_for(product, k)))
-                     for k in P.YEAR_KEYS if k == "this" or len(P.cohorts(product)) > 1]
+            have = {r[0] for r in db.session.query(CenterData.cohort).filter_by(product=product).distinct()}
+            for i, c in enumerate(P.cohorts(product)):
+                if i >= 2 and c not in have:        # extra buttons only once they have students
+                    continue
+                key = P.year_key_of(product, c)
+                label = P.YEAR_LABELS.get(key, "")
+                years.append(dict(key=key, text=f"{label} · {P.pretty(c)}" if label else P.pretty(c)))
         return dict(allowed=allowed_products(u), product=product, PRODUCTS=P.PRODUCTS,
                     year_key=year_key, cohort=cohort, years=years)
 
@@ -220,12 +226,19 @@ def create_app():
                 cols.append({"label": f"{region} - Total", "kind": "total",
                              "vals": metrics.column_values([r.data for r in rs])})
             else:
-                cols.append({"label": region, "kind": "total",
+                # one centre picked in the Centre filter -> name the column after the centre, not its region
+                label = rs[0].center if (f["center"] and len(rs) == 1) else region
+                cols.append({"label": label, "kind": "total",
                              "vals": metrics.column_values([r.data for r in rs])})
         if len(by_region) > 1:
             use = [r for r in rows if not (u.sees_everything and r.region in metrics.EXCLUDE_FROM_TOTAL)]
             excl = u.sees_everything and any(r.region in metrics.EXCLUDE_FROM_TOTAL for r in rows)
-            label = "All India (Excl " + ", ".join(metrics.EXCLUDE_FROM_TOTAL) + ")" if excl else "Total"
+            if excl:
+                label = "All India (Excl " + ", ".join(metrics.EXCLUDE_FROM_TOTAL) + ")"
+            elif u.sees_everything:
+                label = "All India" + (f" ({f['coco']})" if f["coco"] else "")
+            else:
+                label = "Total"
             cols.append({"label": label, "kind": "grand",
                          "vals": metrics.column_values([r.data for r in use])})
         return cols
@@ -235,15 +248,13 @@ def create_app():
         year_key, cohort = active_year(u)
         rows = visible_rows(u, product, cohort)
         f = {k: request.args.get(k, "") for k in FILTER_KEYS}
-        opts = {
-            "coco": sorted({r.coco for r in rows if r.coco}),
-            "region": sorted({r.region for r in rows}),
-            "city": sorted({r.city for r in rows if not f["region"] or r.region == f["region"]}),
-            "center": sorted({r.center for r in rows
-                              if (not f["region"] or r.region == f["region"])
-                              and (not f["city"] or r.city == f["city"])}),
-        }
+        # Filters cascade: COCO -> Region -> City -> Centre. Each list only offers what is left after the
+        # choices above it, and a choice that no longer fits (parent changed) is dropped.
+        opts = {}
         for k in FILTER_KEYS:
+            opts[k] = sorted({getattr(r, k) for r in rows if getattr(r, k)})
+            if f[k] and f[k] not in opts[k]:
+                f[k] = ""
             if f[k]:
                 rows = [r for r in rows if getattr(r, k) == f[k]]
         # The table only appears once something is selected. If this login has nothing to
