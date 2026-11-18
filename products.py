@@ -5,7 +5,7 @@ Every product has its own Google Sheet whose FIRST tab "Enrolment File" holds on
 The dashboard numbers are calculated from that tab (see enrol.py).
 
 Things you can change WITHOUT touching code (Vercel -> Settings -> Environment Variables):
-    UG_COHORTS   = BBA27,BBA28         which two cohorts are "This year" and "Next year"
+    PG_COHORTS   = CAT26,CAT27,CETCMAT26,CETCMAT27   the buttons, in order (This, Next, This, Next ...)
     UG_COHORT_FROM = final             which column names the course group: final (Final Course Name) or combo (Year Product Combo)
     UG_ENROL_TAB = Enrolment File      the tab with the student rows
     UG_SOURCE    = pivot               go back to the old pivot tabs for that product
@@ -17,14 +17,17 @@ PRODUCTS = {
     "PG": {
         "label": "PG", "enabled": True,
         "sheet_env": ("GSHEET_ID_PG", "GSHEET_ID"),          # GSHEET_ID = the variable you already set
-        "enrol_tab": "Enrolment File", "cohorts": ["CAT26", "CAT27"], "cohort_from": "combo",
+        "enrol_tab": "Enrolment File", "cohort_from": "combo",
+        # buttons, in order: This year, Next year, then the same two for the second course group.
+        # CET and CMAT students are merged into ONE group, CETCMAT (see COURSE_ALIASES below).
+        "cohorts": ["CAT26", "CAT27", "CETCMAT26", "CETCMAT27"],
         "myplan_tab": "MyPlan Report", "sim_tab": "SimTest Report",     # only used if PG_SOURCE=pivot
     },
     "UG": {
         "label": "UG", "enabled": True,
         "sheet_env": ("GSHEET_ID_UG",),
         "enrol_tab": "Enrolment File", "cohort_from": "final",     # IPM BBA and IPM Indore share Program "BBA"
-        # first two = This year / Next year; the rest are extra buttons (shown once they have students)
+        # buttons, in order: This year, Next year, then the same two for IPM Indore
         "cohorts": ["BBA27", "BBA28", "IPMINDORE27", "IPMINDORE28"],
         "myplan_tab": "MyPlan Report", "sim_tab": "SimTest Report",
     },
@@ -32,16 +35,17 @@ PRODUCTS = {
         "label": "Law", "enabled": True,
         "sheet_env": ("GSHEET_ID_LAW",),
         "enrol_tab": "Enrolment File", "cohort_from": "combo",
-        # first two = "This year" / "Next year"; the rest are extra buttons, shown once they have students
+        # buttons, in order: This year, Next year, then the same two for the 3YR LLB course
         "cohorts": ["LAW27", "LAW28", "YRLLB27", "YRLLB28"],
         "myplan_tab": "MyPlan Report", "sim_tab": "SimTest Report",
     },
 }
 YEAR_KEYS = ("this", "next")
 # Button names: code prefix -> label.   YRLLB27 -> "3YR LLB 27", IPMINDORE27 -> "IPM Indore 27"
-ALIASES = {"YRLLB": "3YR LLB", "IPMINDORE": "IPM Indore"}
+ALIASES = {"YRLLB": "3YR LLB", "IPMINDORE": "IPM Indore", "CETCMAT": "CET-CMAT"}
 # Final Course Name prefixes folded into a shorter code (IPMBBA27 is simply "BBA 27")
-COURSE_ALIASES = {"IPMBBA": "BBA"}
+# CET and CMAT are merged into one group
+COURSE_ALIASES = {"IPMBBA": "BBA", "CET": "CETCMAT", "CMAT": "CETCMAT"}
 YEAR_LABELS = {"this": "This year", "next": "Next year"}
 
 
@@ -80,6 +84,11 @@ def cohorts(code):
         if vals:
             return vals
     return list(PRODUCTS[code]["cohorts"])
+
+
+def year_label(index):
+    """Buttons alternate This year / Next year: 0 This, 1 Next, 2 This, 3 Next ..."""
+    return "This year" if index % 2 == 0 else "Next year"
 
 
 def cohort_from(code):
