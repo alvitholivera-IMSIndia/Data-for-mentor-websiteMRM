@@ -229,7 +229,8 @@ def create_app():
                              "vals": metrics.column_values([r.data for r in rs])})
             else:
                 # one centre picked in the Centre filter -> name the column after the centre, not its region
-                label = rs[0].center if (f["center"] and len(rs) == 1) else region
+                # one centre only: name the column after the centre when centre-wise was asked for
+                label = rs[0].center if (len(rs) == 1 and (f["center"] or expand_all)) else region
                 cols.append({"label": label, "kind": "total",
                              "vals": metrics.column_values([r.data for r in rs])})
         if len(by_region) > 1:
@@ -265,7 +266,7 @@ def create_app():
         has_sel = any(f.values()) or not selectable
         expand_all = request.args.get("expand") == "1"
         cols = build_cols(u, rows, f, expand_all) if has_sel else []
-        return dict(f=f, opts=opts, has_sel=has_sel, expand_all=expand_all, cols=cols, product=product, cohort=cohort,
+        return dict(f=f, opts=opts, has_sel=has_sel, expand_all=expand_all, cols=cols, product=product, cohort=cohort, cohort_label=P.pretty(cohort),
                     metrics=metrics.labelled(month_label(product)), title=P.heading(cohort))
 
     def _safe(x):          # stop spreadsheet formula injection in exported text
@@ -405,6 +406,27 @@ def create_app():
                               env=P.env_hint(c),
                               tabs=(P.enrol_tab(c),) if P.source(c) == "enrolment" else (P.tab(c, "myplan"), P.tab(c, "sim"))))
         return render_template("admin_data.html", u=u, plist=plist, regionmap=text_)
+
+    @app.route("/admin/counts")
+    @login_required(admin=True)
+    def admin_counts(u):
+        """Students per centre for EVERY course group at once - for checking against the sheet's pivots."""
+        code = (request.args.get("p") or "").upper()
+        code = code if code in P.enabled_codes() else P.enabled_codes()[0]
+        q = (request.args.get("q") or "").strip().lower()
+        rows = CenterData.query.filter_by(product=code).all()
+        cohorts = P.cohorts(code) + sorted({r.cohort for r in rows} - set(P.cohorts(code)))
+        grid = {}
+        for r in rows:
+            key = (r.region, r.center, r.coco)
+            if q and q not in f"{r.region} {r.center} {r.city}".lower():
+                continue
+            grid.setdefault(key, {})[r.cohort] = grid.get(key, {}).get(r.cohort, 0) + int(r.data.get("enrol") or 0)
+        lines = [dict(region=k[0], center=k[1], coco=k[2], per=v, total=sum(v.values()))
+                 for k, v in sorted(grid.items())]
+        totals = {c: sum(l["per"].get(c, 0) for l in lines) for c in cohorts}
+        return render_template("admin_counts.html", u=u, code=code, q=q, cohorts=cohorts, lines=lines,
+                               totals=totals, grand=sum(totals.values()), prods=P.enabled_codes())
 
     def _product_from_form():
         code = (request.form.get("product") or "").upper()
