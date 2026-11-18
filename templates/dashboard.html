@@ -30,6 +30,6 @@ function clearBelow(sel){for(var i=ORDER.indexOf(sel.name)+1;i<ORDER.length;i++)
 {% for m in metrics %}{% set i = loop.index0 %}<tr><td>{{ m.label }}</td>
 {% for c in cols %}<td class="{{ c.kind }} {{ 'b' if m.bold }}">{{ c.vals[i] }}</td>{% endfor %}</tr>{% endfor %}
 </table></div>
-<p class="mute">Values are actual (target). – means that figure is not in the loaded data.</p>
+<p class="mute">Values are actual (target). – means that figure is not in the loaded data. Only centres that have students in the selected view ({{ cohort_label or '' }}) are listed – a centre whose students are in another view does not appear here.</p>
 {% else %}<div class="card">No {{ PRODUCTS[product].label }} {{ cohort }} data to show for your login / filters. If this looks wrong, contact the admin.</div>{% endif %}
 {% endblock %}
