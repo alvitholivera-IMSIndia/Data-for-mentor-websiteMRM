@@ -6,8 +6,8 @@
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1f2933;--mute:#6b7785;--line:#dde2e8;--brand:#1a73e8;--head:#cfd8e3;--tot:#e8edf4;--grand:#d7e3f4;--err:#c0392b;--ok:#1e8e3e}
 @media(prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1d2128;--ink:#e6e9ee;--mute:#98a2b0;--line:#323a45;--brand:#6ea8ff;--head:#2b3441;--tot:#252c37;--grand:#2c3b52;--err:#ff7b6b;--ok:#5fd486}}
 *{box-sizing:border-box}body{margin:0;font:14px/1.45 Arial,Helvetica,sans-serif;background:var(--bg);color:var(--ink)}
-header{display:flex;gap:16px;align-items:center;padding:10px 20px;background:var(--card);border-bottom:1px solid var(--line)}
-header h1{font-size:16px;margin:0;flex:1}header a{color:var(--brand);text-decoration:none}
+header{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:center;padding:10px 20px;background:var(--card);border-bottom:1px solid var(--line)}
+header h1{font-size:16px;margin:0;flex:1;white-space:nowrap}header a{color:var(--brand);text-decoration:none}
 main{padding:20px;max-width:1500px;margin:auto}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:16px}
 input,select,textarea,button{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
@@ -26,18 +26,20 @@ table.fmt th.total{background:var(--tot)}table.fmt th.grand{background:var(--gra
 table.plain{border-collapse:collapse;width:100%}table.plain td,table.plain th{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 .toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:8px;flex-wrap:wrap}
 a.btn{display:inline-block;padding:7px 12px;border:1px solid var(--brand);border-radius:6px;text-decoration:none;color:#fff;background:var(--brand)}a.btn.ghost{background:none;color:var(--brand)}
-.pills{display:flex;gap:6px}.pill{padding:3px 14px;border:1px solid var(--line);border-radius:999px;text-decoration:none;color:var(--brand);font-weight:700}.pill.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.subbar{display:flex;align-items:center;gap:10px;padding:8px 20px;background:var(--card);border-bottom:1px solid var(--line)}
+.pills{display:flex;flex-wrap:wrap;gap:6px}.pill{white-space:nowrap;padding:3px 14px;border:1px solid var(--line);border-radius:999px;text-decoration:none;color:var(--brand);font-weight:700}.pill.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 .empty{text-align:center;color:var(--mute);padding:40px 16px}
 .row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.mute{color:var(--mute);font-size:12px}
 </style></head><body>
 {% if u is defined and u %}<header><h1>MRM Report · FY 26-27</h1>
 {% if product and request.endpoint in ('dashboard', 'compare') %}<span class="pills">{% for code in allowed %}<a class="pill {{ 'on' if code == product }}" href="{{ url_for(request.endpoint, p=code, y=year_key) }}">{{ PRODUCTS[code].label }}</a>{% endfor %}</span>
-<span class="pills">{% for y in years %}<a class="pill {{ 'on' if y.key == year_key }}" href="{{ url_for(request.endpoint, p=product, y=y.key) }}">{{ y.text }}</a>{% endfor %}</span>{% endif %}
+{% endif %}
 <span class="mute">{{ u.email }}</span>
 <a href="{{ url_for('dashboard', p=product, y=year_key) }}">Dashboard</a>
 <a href="{{ url_for('compare', p=product, y=year_key) }}">Comparison</a>
 {% if u.is_admin %}<a href="{{ url_for('admin_users') }}">Users</a><a href="{{ url_for('admin_data') }}">Data</a>{% endif %}
-<form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf() }}"><button class="ghost">Log out</button></form></header>{% endif %}
+<form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf() }}"><button class="ghost">Log out</button></form></header>
+{% if product and years and request.endpoint in ('dashboard', 'compare') %}<div class="subbar"><span class="mute">View:</span><span class="pills">{% for y in years %}<a class="pill {{ 'on' if y.key == year_key }}" href="{{ url_for(request.endpoint, p=product, y=y.key) }}">{{ y.text }}</a>{% endfor %}</span></div>{% endif %}{% endif %}
 <main>{% for c, m in get_flashed_messages(with_categories=true) %}<div class="flash {{ c }}">{{ m }}</div>{% endfor %}
 {% block body %}{% endblock %}</main><script>
 document.addEventListener("click",function(e){
