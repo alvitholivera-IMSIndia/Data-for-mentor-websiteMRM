@@ -1,12 +1,12 @@
 {% extends "base.html" %}{% block title %}Dashboard{% endblock %}
 {% block body %}
 <script>
-var ORDER=["coco","region","city","center"];
+var ORDER=["coco","region","center"];
 function clearBelow(sel){for(var i=ORDER.indexOf(sel.name)+1;i<ORDER.length;i++){var s=sel.form.elements[ORDER[i]];if(s)s.value="";}}
 </script>
 <form class="card filters" method="get">
 {% if product %}<input type="hidden" name="p" value="{{ product }}"><input type="hidden" name="y" value="{{ year_key }}">{% endif %}
-{% for key, label in (("coco","COCO / Non COCO"),("region","Region"),("city","City"),("center","Centre")) %}
+{% for key, label in (("coco","COCO / Non COCO"),("region","Region"),("center","Centre")) %}
 <div><label>{{ label }}</label>
 <select name="{{ key }}" onchange="clearBelow(this);this.form.submit()"><option value="">All</option>
 {% for o in opts[key] %}<option {{ 'selected' if f[key]==o }}>{{ o }}</option>{% endfor %}</select></div>{% endfor %}
@@ -17,7 +17,7 @@ function clearBelow(sel){for(var i=ORDER.indexOf(sel.name)+1;i<ORDER.length;i++)
 {% if not product %}
 <div class="card empty">No product is assigned to your login. Please contact the admin.</div>
 {% elif not has_sel %}
-<div class="card empty">Select a COCO / Region / City / Centre above to view the table.<br>
+<div class="card empty">Select a COCO / Region / Centre above to view the table.<br>
 <span class="mute">To see cities side by side, use <a href="{{ url_for('compare', p=product, y=year_key) }}">Comparison</a>.</span></div>
 {% elif cols %}
 <div class="toolbar">
