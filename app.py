@@ -212,7 +212,7 @@ def create_app():
         return redirect(url_for("login"))
 
     # ---------- dashboard ----------
-    FILTER_KEYS = ("coco", "region", "city", "center")
+    FILTER_KEYS = ("coco", "region", "center")
 
     def build_cols(u, rows, f, expand_all):
         by_region = {}
@@ -221,7 +221,7 @@ def create_app():
         cols = []
         for region, rs in by_region.items():
             expand = len(rs) > 1 and (expand_all or region in metrics.EXPAND_REGIONS
-                                      or len(by_region) == 1 or bool(f["city"]))
+                                      or len(by_region) == 1)
             if expand:
                 for r in rs:
                     cols.append({"label": r.center, "kind": "centre", "vals": metrics.column_values([r.data])})
@@ -251,7 +251,7 @@ def create_app():
         year_key, cohort = active_year(u)
         rows = visible_rows(u, product, cohort)
         f = {k: request.args.get(k, "") for k in FILTER_KEYS}
-        # Filters cascade: COCO -> Region -> City -> Centre. Each list only offers what is left after the
+        # Filters cascade: COCO -> Region -> Centre. Each list only offers what is left after the
         # choices above it, and a choice that no longer fits (parent changed) is dropped.
         opts = {}
         for k in FILTER_KEYS:
