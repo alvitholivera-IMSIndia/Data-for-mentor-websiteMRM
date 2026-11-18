@@ -146,10 +146,8 @@ def create_app():
         return g.product
 
     def cohort_list(product):
-        """Configured cohorts first (This year, Next year, extras), then any other course group found in the data."""
-        cs = P.cohorts(product)
-        have = [r[0] for r in db.session.query(CenterData.cohort).filter_by(product=product).distinct() if r[0]]
-        return cs + sorted(c for c in have if c not in cs)
+        """The buttons for a product, in order (see products.py)."""
+        return P.cohorts(product)
 
     def active_year(u):
         """This year / Next year / an extra course group -> (url key, cohort code) for the active product."""
@@ -172,13 +170,8 @@ def create_app():
         years = []
         if product:
             cl = cohort_list(product)
-            have = {r[0] for r in db.session.query(CenterData.cohort).filter_by(product=product).distinct()}
             for i, c in enumerate(cl):
-                if i >= 2 and c not in have:        # extra buttons only once they have students
-                    continue
-                key = P.year_key_of(cl, c)
-                label = P.YEAR_LABELS.get(key, "")
-                years.append(dict(key=key, text=f"{label} · {P.pretty(c)}" if label else P.pretty(c)))
+                years.append(dict(key=P.year_key_of(cl, c), text=f"{P.year_label(i)} · {P.pretty(c)}"))
         return dict(allowed=allowed_products(u), product=product, PRODUCTS=P.PRODUCTS,
                     year_key=year_key, cohort=cohort, years=years)
 
@@ -402,8 +395,8 @@ def create_app():
         plist = []
         for c in P.enabled_codes():
             det = json.loads(meta.get(f"sync_detail:{c}") or "{}")
-            shown = P.cohorts(c) + [x for x in det.get("cohorts", {}) if x not in P.cohorts(c)]
-            plist.append(dict(code=c, label=P.PRODUCTS[c]["label"], cohort_list=shown,
+            unlisted = {x: v for x, v in det.get("cohorts", {}).items() if x not in P.cohorts(c)}
+            plist.append(dict(code=c, label=P.PRODUCTS[c]["label"], cohort_list=P.cohorts(c), unlisted=unlisted,
                               n=CenterData.query.filter_by(product=c).count(),
                               mode=P.source(c), cohorts=P.cohorts(c),
                               updated=meta.get(f"last_updated:{c}"), source=meta.get(f"last_source:{c}"),
