@@ -7,9 +7,9 @@ function clearBelow(sel){for(var i=ORDER.indexOf(sel.name)+1;i<ORDER.length;i++)
 <form class="card filters" method="get">
 {% if product %}<input type="hidden" name="p" value="{{ product }}"><input type="hidden" name="y" value="{{ year_key }}">{% endif %}
 {% for key, label in (("coco","COCO / Non COCO"),("region","Region"),("city","City"),("center","Centre")) %}
-{% if opts[key]|length > 1 or f[key] %}<div><label>{{ label }}</label>
+<div><label>{{ label }}</label>
 <select name="{{ key }}" onchange="clearBelow(this);this.form.submit()"><option value="">All</option>
-{% for o in opts[key] %}<option {{ 'selected' if f[key]==o }}>{{ o }}</option>{% endfor %}</select></div>{% endif %}{% endfor %}
+{% for o in opts[key] %}<option {{ 'selected' if f[key]==o }}>{{ o }}</option>{% endfor %}</select></div>{% endfor %}
 <div><label>&nbsp;</label><label style="color:var(--ink)"><input type="checkbox" name="expand" value="1" {{ 'checked' if expand_all }} onchange="this.form.submit()"> Show centre-wise for every region</label></div>
 <div><a href="{{ url_for('dashboard', p=product, y=year_key) }}">Reset</a></div>
 <div style="margin-left:auto" class="mute">{% if updated %}Data updated: {{ updated }}{% else %}No data loaded yet{% endif %}</div>
