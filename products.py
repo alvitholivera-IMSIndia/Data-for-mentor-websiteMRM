@@ -27,8 +27,9 @@ PRODUCTS = {
         "label": "UG", "enabled": True,
         "sheet_env": ("GSHEET_ID_UG",),
         "enrol_tab": "Enrolment File", "cohort_from": "final",     # IPM BBA and IPM Indore share Program "BBA"
-        # buttons, in order: This year, Next year, then the same two for IPM Indore
-        "cohorts": ["BBA27", "BBA28", "IPMINDORE27", "IPMINDORE28"],
+        # buttons, in order: This year, Next year, then the same two for IPM Indore, then the two
+        # COMBINED views (a "+" merges course groups, centre by centre, when the page is opened)
+        "cohorts": ["BBA27", "BBA28", "IPMINDORE27", "IPMINDORE28", "BBA27+IPMINDORE27", "BBA28+IPMINDORE28"],
         "myplan_tab": "MyPlan Report", "sim_tab": "SimTest Report",
     },
     "LAW": {
@@ -111,11 +112,32 @@ def year_key_of(cl, cohort):
     return "this" if cohort == cl[0] else ("next" if len(cl) > 1 and cohort == cl[1] else cohort)
 
 
+def parts(view):
+    """'BBA27+IPMINDORE27' -> ['BBA27', 'IPMINDORE27'];  'CAT26' -> ['CAT26']."""
+    return [p for p in (view or "").split("+") if p]
+
+
+def base_cohorts(code):
+    """Every single course group used by the buttons of a product (combined views split into their parts)."""
+    out = []
+    for view in cohorts(code):
+        for p in parts(view):
+            if p not in out:
+                out.append(p)
+    return out
+
+
 def pretty(cohort):
-    """CAT26 -> 'CAT 26'; YRLLB27 -> '3YR LLB 27'; IPMINDORE27 -> 'IPM Indore 27'."""
-    m = re.fullmatch(r"([A-Za-z]+)(\d+)", cohort or "")
+    """CAT26 -> 'CAT 26'; YRLLB27 -> '3YR LLB 27'; BBA27+IPMINDORE27 -> 'BBA + IPM Indore 27'."""
+    cohort = cohort or ""
+    if "+" in cohort:
+        ms = [re.fullmatch(r"([A-Za-z]+)(\d+)", p) for p in parts(cohort)]
+        if ms and all(ms) and len({m.group(2) for m in ms}) == 1:
+            return " + ".join(ALIASES.get(m.group(1).upper(), m.group(1)) for m in ms) + " " + ms[0].group(2)
+        return " + ".join(pretty(p) for p in parts(cohort))
+    m = re.fullmatch(r"([A-Za-z]+)(\d+)", cohort)
     if not m:
-        return cohort or ""
+        return cohort
     return f"{ALIASES.get(m.group(1).upper(), m.group(1))} {m.group(2)}"
 
 
