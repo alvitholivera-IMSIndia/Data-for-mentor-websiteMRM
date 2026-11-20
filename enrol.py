@@ -237,7 +237,7 @@ def store(product, rows, source):
         p = per.setdefault(cohort, {"centres": 0, "students": 0})
         p["centres"] += 1
         p["students"] += v["raw"]["enrol"]
-    wanted = P.cohorts(product)
+    wanted = P.base_cohorts(product)
     rep["cohorts"] = per
     rep["other_cohorts"] = sorted(c for c in per if c not in wanted)
     rep["mode"] = "enrolment"
