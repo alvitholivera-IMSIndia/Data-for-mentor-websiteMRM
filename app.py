@@ -154,7 +154,7 @@ def create_app():
         if "year" not in g:
             product = active_product(u)
             cl = cohort_list(product) if product else []
-            want = (request.args.get("y") or session.get("year") or "this")
+            want = (request.args.get("y") or session.get("year") or "this").strip().replace(" ", "+")
             key = want.lower() if want.lower() in P.YEAR_KEYS else (want.upper() if want.upper() in cl[2:] else "this")
             g.year = (key, P.cohort_for(product, key, cl) if product else "")
             session["year"] = key
@@ -185,9 +185,25 @@ def create_app():
         m = db.session.get(Meta, f"last_updated:{product}")
         return m.value if m else None
 
+    class MergedRow:
+        """One centre combined across several course groups (a combined view such as BBA + IPM Indore 27)."""
+        def __init__(self, rows):
+            first = rows[0]
+            self.region, self.center, self.coco, self.city = first.region, first.center, first.coco, first.city
+            self.cohort = "+".join(r.cohort for r in rows)
+            self.data = metrics.aggregate([r.data for r in rows])
+
     def visible_rows(u, product, cohort):
-        rows = (CenterData.query.filter_by(product=product, cohort=cohort).order_by(CenterData.id).all()
-                if product and cohort else [])
+        rows = []
+        if product and cohort:
+            ps = P.parts(cohort)
+            rows = (CenterData.query.filter(CenterData.product == product, CenterData.cohort.in_(ps))
+                    .order_by(CenterData.id).all())
+            if len(ps) > 1:                      # combined view: merge the same centre across its groups
+                by_centre = {}
+                for r in rows:
+                    by_centre.setdefault(r.center, []).append(r)
+                rows = [MergedRow(rs) for rs in by_centre.values()]
         if u.sees_everything:
             return rows
         regs = {r.lower() for r in u.region_list}
@@ -280,7 +296,7 @@ def create_app():
         for i, m in enumerate(metrics.labelled(month_label(product))):
             w.writerow([m["label"]] + [c["vals"][i] for c in cols])
         return Response("\ufeff" + buf.getvalue(), mimetype="text/csv; charset=utf-8",
-                        headers={"Content-Disposition": f"attachment; filename={name}-{product}-{cohort}-{date.today():%Y-%m-%d}.csv"})
+                        headers={"Content-Disposition": f"attachment; filename={name}-{product}-{cohort.replace('+', '_')}-{date.today():%Y-%m-%d}.csv"})
 
     @app.route("/")
     @login_required()
@@ -396,8 +412,8 @@ def create_app():
         plist = []
         for c in P.enabled_codes():
             det = json.loads(meta.get(f"sync_detail:{c}") or "{}")
-            unlisted = {x: v for x, v in det.get("cohorts", {}).items() if x not in P.cohorts(c)}
-            plist.append(dict(code=c, label=P.PRODUCTS[c]["label"], cohort_list=P.cohorts(c), unlisted=unlisted,
+            unlisted = {x: v for x, v in det.get("cohorts", {}).items() if x not in P.base_cohorts(c)}
+            plist.append(dict(code=c, label=P.PRODUCTS[c]["label"], cohort_list=P.base_cohorts(c), unlisted=unlisted,
                               n=CenterData.query.filter_by(product=c).count(),
                               mode=P.source(c), cohorts=P.cohorts(c),
                               updated=meta.get(f"last_updated:{c}"), source=meta.get(f"last_source:{c}"),
@@ -415,7 +431,7 @@ def create_app():
         code = code if code in P.enabled_codes() else P.enabled_codes()[0]
         q = (request.args.get("q") or "").strip().lower()
         rows = CenterData.query.filter_by(product=code).all()
-        cohorts = P.cohorts(code) + sorted({r.cohort for r in rows} - set(P.cohorts(code)))
+        cohorts = P.base_cohorts(code) + sorted({r.cohort for r in rows} - set(P.base_cohorts(code)))
         grid = {}
         for r in rows:
             key = (r.region, r.center, r.coco)
