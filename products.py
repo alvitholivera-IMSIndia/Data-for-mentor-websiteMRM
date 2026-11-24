@@ -17,7 +17,7 @@ PRODUCTS = {
     "PG": {
         "label": "PG", "enabled": True,
         "sheet_env": ("GSHEET_ID_PG", "GSHEET_ID"),          # GSHEET_ID = the variable you already set
-        "enrol_tab": "Enrolment File", "cohort_from": "combo",
+        "enrol_tab": "Enrolment File", "cohort_from": "final",     # Final Course Name (column AL)
         # buttons, in order: This year, Next year, then the same two for the second course group.
         # CET and CMAT students are merged into ONE group, CETCMAT (see COURSE_ALIASES below).
         "cohorts": ["CAT26", "CAT27", "CETCMAT26", "CETCMAT27"],
