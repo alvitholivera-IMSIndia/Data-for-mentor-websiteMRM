@@ -41,8 +41,10 @@ def cohort_of(program, variant, combo, final=None, source="combo"):
     source='final' reads "Final Course Name" first (separates IPM BBA from IPM Indore);
     otherwise "Year Product Combo". A broken cell falls back to Program + the year in the Variant name."""
     def clean(v):
-        v = re.sub(r"\s+", "", str(v or "")).upper()
-        return v if re.fullmatch(r"[A-Z]+\d{2}", v) else None
+        # the course code at the START of the cell: "CAT26 Online" -> CAT26, "IPMIndore27" -> IPMINDORE27,
+        # a broken cell such as "CATB)" or "Ignore" -> None
+        m = re.match(r"\s*([A-Za-z]+)(\d{2})(?!\d)", str(v or ""))
+        return (m.group(1) + m.group(2)).upper() if m else None
 
     code = next((c for c in ((clean(final),) if source == "final" else ()) + (clean(combo),) if c), None)
     if not code:
